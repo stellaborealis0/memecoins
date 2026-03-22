@@ -1,18 +1,22 @@
-# Memecoin Agent v3.0
+# Memecoin Agent v3.0-lite
 
 Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 
-## Arquitectura v3.0
+**Versión**: 3.0-lite (Optimizado para MacBook Pro 7,1 - 8GB RAM)
+
+---
+
+## Arquitectura v3.0-lite
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Memecoin Agent v3.0                             │
+│              Memecoin Agent v3.0-lite (MB: 8GB RAM)                │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Capa A - Sniper Engine                     │  │
 │  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
-│  │  │  Stream gRPC       │  │  Stream WebSocket (fallback)   │   │  │
-│  │  │  (ingesta streaming)│  │  (fallback)                   │   │  │
+│  │  │  Stream polling    │  │  Stream WebSocket (fallback)   │   │  │
+│  │  │  (ingesta polling) │  │  (fallback)                   │   │  │
 │  │  └─────────┬──────────┘  └────────────────────────────────┘   │  │
 │  │            │                                                   │  │
 │  │            ▼                                                   │  │
@@ -34,9 +38,9 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │                              ▼                                       │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Capa C - Research Engine                   │  │
-│  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
-│  │  │  XGBoost Models    │  │  Hipótesis LLM                 │   │  │
-│  │  │  - Pump 24h        │  │  - Generación semanal          │   │  │
+│  │  ┌─────────────────────────────────────────────────────────┐   │  │
+│  │  │  XGBoost Models (WS: 32GB RAM + 8GB VRAM)              │   │  │
+│  │  │  - Pump 24h        │  │  - Hipótesis LLM (TO:8080)      │   │  │
 │  │  │  - Rug 48h         │  │  - Validación cada 6h          │   │  │
 │  │  │  - Survival 7d     │  │  - Backtest diario             │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
@@ -46,7 +50,7 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Capa D - Execution Engine                  │  │
 │  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
-│  │  │  Jito Bundles      │  │  Circuit Breaker               │   │  │
+│  │  │  SQLite DB         │  │  Circuit Breaker               │   │  │
 │  │  │  - Stop-loss -30%  │  │  - Max 1 SOL por trade         │   │  │
 │  │  │  - Take-profit     │  │  - Max 10 trades activos       │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
@@ -61,6 +65,20 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### Distribución de Servicios
+
+| Servicio | Nodo | RAM | Notas |
+|----------|------|-----|-------|
+| Sniper Engine | MB | 2GB | Detección heurística <2s |
+| Risk Filter | MB | 1GB | Evaluación <500ms |
+| Telegram Bot | MB | 1GB | Control remoto |
+| SQLite DB | MB | 512MB | Base de datos local |
+| Streaming | MB | 1GB | Polling cada 1-2s |
+| Research Engine | WS | 32GB | ML + Training (32GB RAM + 8GB VRAM) |
+| LLM Access | TO | - | Gateway LiteLLM (8080) |
+
+---
+
 ## Estructura de Directorios
 
 ```
@@ -68,7 +86,7 @@ memecoins/
 ├── agents/                    # Módulos de las 4 capas
 │   ├── sniper_engine.py      # Capa A - Detección heurística
 │   ├── risk_filter.py        # Capa B - Evaluación de riesgo
-│   ├── research_engine.py    # Capa C - ML + Hipótesis
+│   ├── research_engine.py    # Capa C - ML + Hipótesis (WS)
 │   ├── execution_engine.py   # Capa D - Ejecución de trades
 │   └── whale_tracker.py      # Estrategia spray
 ├── scripts/                   # Scripts de ETL y ML
@@ -96,13 +114,27 @@ memecoins/
 └── README.md
 ```
 
+---
+
 ## Requisitos
 
-- Python 3.11+
-- PostgreSQL 16 + TimescaleDB
-- Docker y Docker Compose (opcional)
+### MacBook Pro 7,1 (MB)
+- **OS**: Ubuntu 24.04
+- **RAM**: 8 GB
+- **Storage**: 8 GB SSD (eMMC)
+- **CPU**: Intel Core i7 (2010)
 
-## Instalación Rápida (Docker)
+### WS (Backend Research)
+- **RAM**: 32 GB
+- **GPU**: 8 GB VRAM
+- **Storage**: 200 GB SSD
+
+### TO (Gateway)
+- **LiteLLM**: Puerto 8080
+
+---
+
+## Instalación Rápida (MB - 8GB RAM)
 
 ```bash
 # Clonar y configurar
@@ -113,38 +145,39 @@ cd memecoin-agent
 cp config/.env.example config/.env
 nano config/.env  # Rellenar con tus API keys y tokens
 
-# Arrancar
-docker compose up -d
+# Instalar dependencias
+pip install -r requirements.txt
 
-# Ver logs
-docker compose logs -f stream-grpc
+# Arrancar servicios
+python scripts/stream_onchain_grpc.py &
+python agents/sniper_engine.py &
+python agents/risk_filter.py &
+python agents/execution_engine.py &
+python agents/whale_tracker.py &
+python scripts/telegram_bot.py &
 ```
 
-## Instalación Nativa
+---
+
+## Instalación Research Engine (WS - 32GB RAM)
 
 ```bash
-# Instalar PostgreSQL + TimescaleDB
-brew install postgresql@16
-brew install timescaledb
+# En WS (32GB RAM + 8GB VRAM)
+git clone https://github.com/tu-usuario/memecoin-agent.git
+cd memecoin-agent
 
-# Crear base de datos
-createdb memecoin_db
-createuser memecoin_user
-psql -d memecoin_db -f sql/schema_v3.0.sql
+# Copiar variables de entorno
+cp config/.env.example config/.env
+nano config/.env
 
 # Instalar dependencias
 pip install -r requirements.txt
 
-# Configurar variables de entorno
-export DATABASE_URL=postgresql://memecoin_user:password@localhost:5432/memecoin_db
-export TELEGRAM_BOT_TOKEN=tu_token
-export TELEGRAM_ALLOWED_USERS=tu_user_id
-
-# Arrancar
-python scripts/stream_onchain_grpc.py
-python agents/risk_filter.py
+# Arrancar Research Engine
 python agents/research_engine.py
 ```
+
+---
 
 ## Comandos de Telegram
 
@@ -159,6 +192,8 @@ python agents/research_engine.py
 - `/resume` - Reanudar agente
 - `/ping` - Verificar estado
 
+---
+
 ## Modos Operativos
 
 - **research** (por defecto): Solo alertas y análisis. No ejecuta trades.
@@ -169,6 +204,8 @@ python agents/research_engine.py
 2. Validar modelos con precision@top10 >= 0.60 durante 8 semanas
 3. Configurar WALLET_PRIVATE_KEY con seguridad
 
+---
+
 ## Seguridad
 
 - Límite hard de 1 SOL por trade (nunca se puede sobrepasar)
@@ -176,6 +213,8 @@ python agents/research_engine.py
 - Circuit breaker tras 3 pérdidas consecutivas
 - Execution PIN de 6 dígitos para activar trades reales
 - NUNCA usar en producción sin validación completa
+
+---
 
 ## Arquitectura de Datos
 
@@ -190,6 +229,8 @@ python agents/research_engine.py
 - `trades`: Historial de trades ejecutados
 - `risk_events`: Eventos de evaluación de riesgo
 - `tracked_wallets`: Wallets monitoreadas (whales, creators)
+
+---
 
 ## Estrategias
 
@@ -207,13 +248,14 @@ python agents/research_engine.py
 - Fuentes: RugCheck API, historial creador, concentración
 - Bloquea si risk_score > 0.65
 
-### Capa C - Research Engine
+### Capa C - Research Engine (WS)
 - Entrena modelos XGBoost diariamente
 - Genera hipótesis semanalmente con LLM
 - Validación bayesiana de hipótesis
+- Requiere 32GB RAM + 8GB VRAM
 
 ### Capa D - Execution Engine
-- Jito Bundles para MEV protection
+- SQLite DB (no PostgreSQL)
 - Stop-loss -30%, Take-profit +50% y +100%
 - Circuit breaker tras 3 pérdidas
 
@@ -222,6 +264,8 @@ python agents/research_engine.py
 - Criterios: graduation_rate > 15%, rug_rate < 20%
 - Delay calculado para cada whale
 
+---
+
 ## Métricas de Éxito
 
 - **Precision@top10**: > 0.60 (mínimo aceptable)
@@ -229,20 +273,52 @@ python agents/research_engine.py
 - **Latencia Risk Filter**: < 500ms
 - **Uptime**: > 99.5%
 
+---
+
 ## Logs y Monitoring
 
 ```bash
 # Ver logs de todos los servicios
-docker compose logs -f
+tail -f logs/*.log
 
 # Ver logs de un servicio específico
-docker compose logs -f stream-grpc
-docker compose logs -f sniper
-docker compose logs -f risk-filter
+tail -f logs/streaming.log
+tail -f logs/sniper.log
+tail -f logs/risk-filter.log
 
-# Inspeccionar base de datos
-docker compose exec postgres psql -U memecoin_user -d memecoin_db
+# Inspeccionar base de datos SQLite
+sqlite3 data/memecoin.db
 ```
+
+---
+
+## Integración con SAA v7.2
+
+### Enrutamiento LLM
+
+```
+Memecoin Agent (MB)
+    ↓
+LiteLLM Gateway (TO:8080)
+    ↓
+    ├─→ ws-qwen-heavy → WS:11435 (Qwen3.5) [⚠️ Ocupado COLMAP]
+    ├─→ im-qwen32b    → IM:11434 (Qwen32B) [✅ Disponible]
+    └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline]
+```
+
+### Configuración de LiteLLM
+
+```yaml
+# litellm_config.yaml
+model_list:
+  - model_name: memecoin-agent
+    litellm_params:
+      model: openai/qwen3.5
+      api_base: http://100.68.1.180:8080
+      api_key: ${LITELLM_API_KEY}
+```
+
+---
 
 ## Licencia
 

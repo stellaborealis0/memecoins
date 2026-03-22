@@ -1,6 +1,8 @@
 -- ============================================================
--- Memecoin Agent v3.0 - Schema SQL
--- Arquitectura de 4 capas independientes comunicadas via PostgreSQL
+-- Memecoin Agent v3.0-lite - Schema SQL
+-- Arquitectura de 4 capas independientes comunicadas via SQLite
+-- Optimizado para MacBook Pro 7,1 (8GB RAM)
+-- Research Engine ejecutado en WS (32GB RAM + 8GB VRAM)
 -- ============================================================
 
 -- ============================================================
@@ -8,8 +10,9 @@
 -- ============================================================
 
 -- 1. Tabla tokens (extendida con features v3.0)
+-- SQLite compatible (sin SERIAL, usar INTEGER PRIMARY KEY AUTOINCREMENT)
 CREATE TABLE tokens (
-  id                  SERIAL PRIMARY KEY,
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   address             VARCHAR(255) UNIQUE NOT NULL,
   name                VARCHAR(255),
   symbol              VARCHAR(50),
@@ -68,7 +71,8 @@ CREATE INDEX idx_tokens_probs       ON tokens (prob_pump_24h DESC, prob_rug_48h 
 CREATE INDEX idx_tokens_unlabeled   ON tokens (label_completed) WHERE label_completed = FALSE;
 CREATE INDEX idx_tokens_creator     ON tokens(creator_address);
 
--- 2. Tabla launches (TimescaleDB hypertable, con micro-ventanas v3.0)
+-- 2. Tabla launches (con micro-ventanas v3.0)
+-- SQLite compatible (sin create_hypertable)
 CREATE TABLE launches (
   time                        TIMESTAMP NOT NULL,
   token_id                    INTEGER   NOT NULL REFERENCES tokens(id),
@@ -121,11 +125,12 @@ CREATE TABLE launches (
   PRIMARY KEY (time, token_id)
 );
 
-SELECT create_hypertable('launches', 'time', if_not_exists => TRUE);
+-- SQLite no requiere create_hypertable
 
 CREATE INDEX idx_launches_token ON launches (token_id, time DESC);
 
 -- 3. Tabla btc_context
+-- SQLite compatible
 CREATE TABLE btc_context (
   time                TIMESTAMP PRIMARY KEY,
   price_usd           FLOAT,
@@ -136,9 +141,10 @@ CREATE TABLE btc_context (
   dominance_pct       FLOAT
 );
 
-SELECT create_hypertable('btc_context', 'time', if_not_exists => TRUE);
+-- SQLite no requiere create_hypertable
 
 -- 4. Tabla token_features (extendida con micro-features v3.0)
+-- SQLite compatible
 CREATE TABLE token_features (
   id                          SERIAL PRIMARY KEY,
   token_id                    INTEGER NOT NULL REFERENCES tokens(id),
@@ -216,6 +222,7 @@ CREATE INDEX idx_tf_core    ON token_features (
 );
 
 -- 5. Tabla token_hypotheses
+-- SQLite compatible
 CREATE TABLE token_hypotheses (
   id                      SERIAL PRIMARY KEY,
   hypothesis_text         TEXT NOT NULL,
@@ -244,6 +251,7 @@ CREATE INDEX idx_hyp_active   ON token_hypotheses (active) WHERE active = TRUE;
 CREATE INDEX idx_hyp_versions ON token_hypotheses (feature_version, model_version);
 
 -- 6. Tabla model_performance
+-- SQLite compatible
 CREATE TABLE model_performance (
   id                  SERIAL PRIMARY KEY,
   model_name          VARCHAR(50) NOT NULL,
@@ -271,6 +279,7 @@ CREATE INDEX idx_mp_model   ON model_performance (model_name, model_version);
 CREATE INDEX idx_mp_created ON model_performance (created_at DESC);
 
 -- 7. Tabla backfill_log
+-- SQLite compatible
 CREATE TABLE backfill_log (
   id                  SERIAL PRIMARY KEY,
   source              VARCHAR(50),
@@ -288,6 +297,7 @@ CREATE TABLE backfill_log (
 );
 
 -- 8. Tabla agent_execution_log
+-- SQLite compatible
 CREATE TABLE agent_execution_log (
   id                    SERIAL PRIMARY KEY,
   task_name             VARCHAR(255),
@@ -308,6 +318,7 @@ CREATE INDEX idx_ael_status  ON agent_execution_log (status);
 -- ============================================================
 
 -- 9. Tabla trades (historial de compras/ventas con PnL)
+-- SQLite compatible
 CREATE TABLE trades (
   id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
@@ -335,6 +346,7 @@ CREATE INDEX idx_trades_status   ON trades (status);
 CREATE INDEX idx_trades_timestamp ON trades (timestamp DESC);
 
 -- 10. Tabla risk_events (eventos del risk filter)
+-- SQLite compatible
 CREATE TABLE risk_events (
   id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
@@ -356,6 +368,7 @@ CREATE INDEX idx_risk_timestamp ON risk_events (timestamp DESC);
 CREATE INDEX idx_risk_decision ON risk_events (decision);
 
 -- 11. Tabla circuit_breaker_log (registro de pausas automáticas)
+-- SQLite compatible
 CREATE TABLE circuit_breaker_log (
   id                    SERIAL PRIMARY KEY,
   trigger_type          VARCHAR(50) NOT NULL, -- 'loss_threshold' | 'drawdown' | 'rapid_rug'
@@ -374,6 +387,7 @@ CREATE INDEX idx_cb_trigger ON circuit_breaker_log (trigger_type);
 CREATE INDEX idx_cb_paused  ON circuit_breaker_log (paused_at DESC);
 
 -- 12. Tabla tracked_wallets (whales, bundlers, creators históricos)
+-- SQLite compatible
 CREATE TABLE tracked_wallets (
   id                    SERIAL PRIMARY KEY,
   address               VARCHAR(255) UNIQUE NOT NULL,
@@ -394,6 +408,7 @@ CREATE INDEX idx_tw_type    ON tracked_wallets (wallet_type);
 CREATE INDEX idx_tw_qualifying ON tracked_wallets (is_whale_qualifying) WHERE is_whale_qualifying = TRUE;
 
 -- 13. Tabla spray_targets (copy-trading tracking)
+-- SQLite compatible
 CREATE TABLE spray_targets (
   id                    SERIAL PRIMARY KEY,
   whale_address         VARCHAR(255) NOT NULL,
@@ -416,6 +431,7 @@ CREATE INDEX idx_st_token   ON spray_targets (token_id);
 CREATE INDEX idx_st_outcome ON spray_targets (outcome);
 
 -- 14. Tabla agent_config (parámetros de runtime)
+-- SQLite compatible
 CREATE TABLE agent_config (
   key                   VARCHAR(100) PRIMARY KEY,
   value                 TEXT NOT NULL,
@@ -435,6 +451,7 @@ INSERT INTO agent_config VALUES ('sniper_wallet_threshold', '10', NOW());
 INSERT INTO agent_config VALUES ('sniper_buy_ratio_threshold', '0.70', NOW());
 
 -- 15. Tabla pending_trades (señales pendientes de ejecución)
+-- SQLite compatible
 CREATE TABLE pending_trades (
   id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
@@ -467,6 +484,7 @@ CREATE INDEX idx_tokens_rugcheck ON tokens(rugcheck_score) WHERE rugcheck_score 
 -- ============================================================
 
 -- Vista: Tokens pendientes de etiquetar
+-- SQLite compatible
 CREATE VIEW tokens_pending_label AS
 SELECT id, address, created_at, data_source
 FROM tokens
@@ -474,6 +492,7 @@ WHERE label_completed = FALSE
   AND created_at < NOW() - INTERVAL '24 hours';
 
 -- Vista: Tokens con features calculadas
+-- SQLite compatible
 CREATE VIEW tokens_ready_for_training AS
 SELECT t.id, t.address, t.pump_100pc_24h, t.rug_pull_48h, t.still_active_7d,
        tf.feature_version, tf.created_at as features_created_at
@@ -484,6 +503,7 @@ WHERE t.label_completed = TRUE
   AND t.rug_pull_48h IS NOT NULL;
 
 -- Vista: Métricas de modelos por fecha
+-- SQLite compatible
 CREATE VIEW model_performance_daily AS
 SELECT DATE(created_at) as date, model_name,
        COUNT(*) as runs,
@@ -497,13 +517,5 @@ ORDER BY date DESC, model_name;
 -- COMENTARIOS DE DOCUMENTACIÓN
 -- ============================================================
 
-COMMENT ON TABLE tokens IS 'Tabla principal de tokens, extendida con features v3.0 (creator history, bonding curve, pumpswap migration, rugcheck)';
-COMMENT ON TABLE launches IS 'Series temporales de precios y métricas por token, con micro-ventanas para sniper engine';
-COMMENT ON TABLE token_features IS 'Features calculadas por token, con versionado y micro-features v3.0';
-COMMENT ON TABLE trades IS 'Historial de trades con PnL y tracking de stop-loss/take-profit';
-COMMENT ON TABLE risk_events IS 'Eventos del risk filter con score y decisiones';
-COMMENT ON TABLE circuit_breaker_log IS 'Registro de pausas automáticas por circuit breaker';
-COMMENT ON TABLE tracked_wallets IS 'Whales, bundlers y creators históricos para copy-trading';
-COMMENT ON TABLE spray_targets IS 'Tracking de copy-trading de whale signals';
-COMMENT ON TABLE agent_config IS 'Parámetros de runtime del sistema';
-COMMENT ON TABLE pending_trades IS 'Señales pendientes de ejecución por sniper engine';
+-- SQLite no soporta COMMENT ON TABLE
+-- Documentación en README.md

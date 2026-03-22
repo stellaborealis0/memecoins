@@ -9,14 +9,14 @@
 
 ## 1. Compatibilidad con Arquitectura SAA v7.2
 
-### 1.1 Requisitos de Hardware
+### 1.1 Requisitos de Hardware (v3.0-lite - MacBook Pro 7,1)
 
 | Componente | MB (Agente) | TO (Gateway) | WS (Backend) | IM (Fallback) |
 |------------|-------------|--------------|--------------|---------------|
-| **CPU** | 4+ cores | 4+ cores | 8+ cores | 4+ cores |
-| **RAM** | 16GB+ | 8GB+ | 16GB+ | 8GB+ |
-| **Storage** | 100GB SSD | 50GB SSD | 200GB SSD | 100GB SSD |
-| **GPU** | No requerida | No requerida | Recomendada | No requerida |
+| **CPU** | 4 cores (MBP 7,1) | 4+ cores | 8+ cores | 4+ cores |
+| **RAM** | 8 GB | 8GB+ | 32 GB | 8GB+ |
+| **Storage** | 8 GB SSD (eMMC) | 50GB SSD | 200GB SSD | 100GB SSD |
+| **GPU** | No requerida | No requerida | 8 GB VRAM | No requerida |
 
 ### 1.2 Requisitos de Software
 
@@ -27,29 +27,29 @@
 | Docker | 24+ | Para contenedores |
 | Tailscale | 1.0+ | Para conectividad |
 
-### 1.3 Compatibilidad con Nodos
+### 1.3 Compatibilidad con Nodos (v3.0-lite)
 
 | Nodo | Rol en Memecoin Agent | Estado |
 |------|----------------------|--------|
-| **MB** | Agente cliente (Hermes) | ✅ Activo |
+| **MB** | Control plane (Sniper, Risk, Telegram) | ✅ Activo |
 | **TO** | LiteLLM Gateway (LLM) | ✅ Activo |
-| **WS** | Backend IA principal | ⚠️ Ocupado COLMAP |
+| **WS** | Research Engine (ML + Training) | ⚠️ Ocupado COLMAP |
 | **IM** | Fallback IA (phi) | ✅ Activo |
 | **EW** | Backend extra | ❌ Offline |
 
-### 1.4 Enrutamiento LLM para Memecoin Agent
+### 1.4 Enrutamiento LLM para Memecoin Agent (v3.0-lite)
 
 ```
 Memecoin Agent (MB)
     ↓
 LiteLLM Gateway (TO:8080)
     ↓
-    ├─→ ws-qwen-heavy → WS:11435 (Qwen3.5) [⚠️ Ocupado]
+    ├─→ ws-qwen-heavy → WS:11435 (Qwen3.5) [⚠️ Ocupado COLMAP]
     ├─→ im-qwen32b    → IM:11434 (Qwen32B) [✅ Disponible]
     └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline]
 ```
 
-**Recomendación**: Usar `im-qwen32b` para tareas de Memecoin Agent hasta que WS esté disponible.
+**Recomendación**: Usar `im-qwen32b` para tareas de Memecoin Agent. Research Engine va a WS (32GB RAM + 8GB VRAM) cuando esté disponible.
 
 ---
 
@@ -391,49 +391,48 @@ Validar sistema completo antes de producción.
 
 ---
 
-## 3. Especificación de Recursos
+## 3. Especificación de Recursos (v3.0-lite)
 
 ### 3.1 Recursos por Servicio
 
 | Servicio | CPU | RAM | Storage | Notas |
 |----------|-----|-----|---------|-------|
-| postgres | 2 | 4GB | 50GB | PostgreSQL + TimescaleDB |
-| stream-grpc | 1 | 2GB | 1GB | Streaming on-chain |
-| stream-ws | 1 | 1GB | 1GB | Streaming WebSocket fallback |
-| sniper | 2 | 4GB | 1GB | Sniper Engine |
-| risk-filter | 1 | 2GB | 1GB | Risk Filter |
-| research | 4 | 8GB | 10GB | Research Engine (ML) |
-| execution | 2 | 4GB | 1GB | Execution Engine |
-| whale-tracker | 1 | 2GB | 1GB | Whale Tracker |
+| sqlite | 1 | 512MB | 1GB | SQLite (reemplaza PostgreSQL) |
+| stream-grpc | 1 | 1GB | 1GB | Streaming on-chain (polling) |
+| sniper | 1 | 2GB | 1GB | Sniper Engine |
+| risk-filter | 1 | 1GB | 1GB | Risk Filter |
+| research | 4 | 32GB | 10GB | Research Engine (WS - ML + Training) |
+| execution | 1 | 2GB | 1GB | Execution Engine |
+| whale-tracker | 1 | 1GB | 1GB | Whale Tracker |
 | telegram-bot | 1 | 1GB | 1GB | Telegram Bot |
 
-**Total Recomendado**: 15GB RAM, 15+ cores, 80GB+ Storage
+**Total MB (8GB RAM)**: 8GB RAM suficiente para MB
+**Total WS (32GB RAM)**: 32GB RAM para Research Engine
 
-### 3.2 Recursos por Fase
+### 3.2 Recursos por Fase (v3.0-lite)
 
-| Fase | CPU | RAM | Storage | Duración |
-|------|-----|-----|---------|----------|
-| 0 | 2 | 4GB | 10GB | 2 días |
-| 1 | 2 | 8GB | 50GB | 3 días |
-| 2 | 2 | 4GB | 10GB | 3 días |
-| 3 | 4 | 8GB | 20GB | 3 días |
-| 4 | 8 | 16GB | 30GB | 7 días |
-| 5 | 2 | 4GB | 10GB | 3 días |
-| 6 | 2 | 2GB | 5GB | 2 días |
-| 7 | 8 | 16GB | 50GB | 2 días |
-| 8 | 4 | 8GB | 20GB | 3 días |
+| Fase | CPU | RAM MB | RAM WS | Storage | Duración |
+|------|-----|--------|--------|---------|----------|
+| 0 | 2 | 4GB | - | 10GB | 2 días |
+| 1 | 2 | 2GB | - | 1GB | 3 días |
+| 2 | 2 | 2GB | - | 1GB | 3 días |
+| 3 | 4 | 4GB | - | 1GB | 3 días |
+| 4 | 8 | 8GB | - | 1GB | 7 días |
+| 5 | 2 | 2GB | - | 1GB | 3 días |
+| 6 | 2 | 2GB | - | 1GB | 2 días |
+| 7 | 8 | 8GB | - | 1GB | 2 días |
+| 8 | 4 | 4GB | - | 1GB | 3 días |
 
-**Total Recomendado**: 16GB RAM, 8+ cores, 200GB+ Storage
+**Total MB**: 8GB RAM suficiente (sin Docker, sin PostgreSQL)
+**Total WS**: 32GB RAM para Research Engine (cuando esté disponible)
 
-### 3.3 Costes Estimados
+### 3.3 Costes Estimados (v3.0-lite)
 
 | Componente | Coste Mensual | Notas |
 |------------|---------------|-------|
 | Helius RPC | $50-100 | 100k req/mes |
 | Bitquery | $50-100 | Free tier suficiente |
-| Chainstack | $20-50 | gRPC endpoint |
-| PostgreSQL (AWS RDS) | $50-100 | t3.medium |
-| **Total Estimado** | **$170-350/mes** | Sin contar infraestructura |
+| **Total Estimado** | **$100-200/mes** | Sin PostgreSQL ni infraestructura |
 
 ---
 
@@ -546,7 +545,7 @@ docker compose exec agent env | grep DATABASE_URL
 
 ---
 
-## 7. Integración con SAA v7.2
+## 7. Integración con SAA v7.2 (v3.0-lite)
 
 ### 7.1 Configuración de LiteLLM
 
@@ -560,16 +559,12 @@ model_list:
       api_key: ${LITELLM_API_KEY}
 ```
 
-### 7.2 Configuración de Hermes
+### 7.2 Configuración de Research Engine (WS)
 
-```toml
-# config/hermes-memecoin.toml
-[agent]
-name = "memecoin-analyst"
-model = "http://100.68.1.180:8080/v1"
-model_id = "im-qwen32b"  # Usar IM como fallback
-temperature = 0.4
-max_tokens = 2000
+```bash
+# Research Engine se ejecuta en WS (32GB RAM + 8GB VRAM)
+# Accede a MB via Tailscale para base de datos SQLite
+# LLM access via TO:8080
 ```
 
 ### 7.3 Configuración de Tailscale

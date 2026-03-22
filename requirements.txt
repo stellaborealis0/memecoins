@@ -1,9 +1,11 @@
 # ============================================================
-# Memecoin Agent v3.0 - Requirements.txt
+# Memecoin Agent v3.0-lite - Requirements.txt
+# Optimizado para MacBook Pro 7,1 (8GB RAM)
+# Research Engine ejecutado en WS (32GB RAM + 8GB VRAM)
 # ============================================================
 
 # --- Core ---
-psycopg2-binary>=2.9
+# SQLite (incluido en Python 3.x, no requiere dependencia)
 solana>=0.34
 solders>=0.21
 websockets>=12.0
