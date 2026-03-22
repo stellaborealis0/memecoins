@@ -1,14 +1,22 @@
 # ============================================================
-# Memecoin Agent v3.0-ultralite - Requirements.txt
+# Memecoin Agent v3.0-ultralite-fixed - Requirements.txt
 # Optimizado para MacBook Pro 7,1 (8GB RAM) + IM (fallback)
 # SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
+# Python 3.11 requerido (NO usar 3.12 - solana-py incompatible)
 # ============================================================
 
+# --- Python y versiones exactas ---
+# Python 3.11 requerido. NO usar 3.12 (solana-py incompatible).
+# Verificar: python --version
+
 # --- Core (sin gRPC, sin Docker) ---
-solana>=0.34
-solders>=0.21
+solana==0.34.0
+solders==0.21.0
 requests>=2.31
 websockets>=12.0
+
+# --- LLM vía LiteLLM Gateway (TO:8080) ---
+openai>=1.30
 
 # --- ML (CPU-only, sin torch) ---
 xgboost>=2.0
@@ -16,7 +24,7 @@ scikit-learn>=1.4
 pandas>=2.0
 numpy>=1.26
 
-# --- Scheduler (solo uno) ---
+# --- Scheduler ---
 apscheduler>=3.10
 
 # --- Telegram ---
@@ -29,6 +37,3 @@ tenacity>=8.2
 python-dotenv>=1.0.1
 pydantic>=2.7.1
 structlog>=24.1.0
-
-# --- LLM vía LiteLLM Gateway (TO:8080) ---
-# NO openai - usar requests directo a http://100.68.1.180:8080/v1

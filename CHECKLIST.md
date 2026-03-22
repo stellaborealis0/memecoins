@@ -1,36 +1,41 @@
-# Memecoin Agent v3.0-ultralite - Checklist de Validación
+# Memecoin Agent v3.0-ultralite-fixed - Checklist de Validación
 
 **Estado**: SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
+**Versión**: v3.0-ultralite-fixed (corrección de errores críticos)
 
 ---
 
 ## Fase 0: Análisis previo e inventario
 
-- [ ] Leer schema actual de v3.0-ultralite y listar tablas
-- [ ] Inventariar scripts de v3.0-ultralite
-- [ ] Verificar requirements.txt actual (ultralite)
+- [ ] Leer schema actual de v3.0-ultralite-fixed y listar tablas
+- [ ] Inventariar scripts de v3.0-ultralite-fixed
+- [ ] Verificar requirements.txt actual (ultralite-fixed)
 - [ ] Verificar conectividad SAA (LiteLLM TO:8080, Tailscale)
-- [ ] Verificar Python 3.11
+- [ ] Verificar Python 3.11 (NO 3.12 - solana-py incompatible)
+- [ ] Verificar RAM libre en IM con Ollama corriendo: ≥5 GB disponibles
+- [ ] Montar almacenamiento externo o NFS: verificar que /data y pip install tienen al menos 10 GB libres
 - [ ] Reportar inventario completo
 
 ---
 
 ## Fase 1: Infraestructura base
 
-- [ ] Crear estructura de carpetas v3.0-ultralite
-- [ ] Crear sql/schema_v3.0.sql (SQLite compatible)
-- [ ] Actualizar requirements.txt (ultralite)
+- [ ] Crear estructura de carpetas v3.0-ultralite-fixed
+- [ ] Crear sql/schema_v3.0.sql (SQLite compatible, micro-ventanas 30s)
+- [ ] Actualizar requirements.txt (ultralite-fixed con openai>=1.30)
 - [ ] Actualizar config/.env.example
 - [ ] Crear .gitignore
-- [ ] Crear README.md (v3.0-ultralite)
+- [ ] Crear README.md (v3.0-ultralite-fixed)
 - [ ] Crear scripts/init_db.py (WAL Mode)
-- [ ] Crear scripts/db_manager.py (retención automática)
+- [ ] Crear scripts/cleanup.py (cron cada 6h con VACUUM)
+- [ ] Crear scripts/llm_client.py (helper centralizado)
 
 ---
 
-## Fase 2: Streaming on-chain
+## Fase 2: Streaming on-chain (PumpPortal WebSocket)
 
-- [ ] Implementar scripts/stream_onchain_polling.py (15s Helius)
+- [ ] Implementar scripts/stream_onchain_ws.py (PumpPortal WebSocket - primario)
+- [ ] Implementar scripts/stream_onchain_polling.py (Helius 5min - fallback)
 - [ ] Modificar scripts/collect_onchain.py
 - [ ] Probar conexión RPC (dry-run)
 - [ ] Reducir carga CPU con server-side filter
@@ -39,7 +44,7 @@
 
 ## Fase 3: Micro-ventanas de features
 
-- [ ] Actualizar schema con micro-ventanas (10s, 30s, 60s)
+- [ ] Actualizar schema con micro-ventanas (30s, 60s, 5m)
 - [ ] Actualizar scripts/compute_features.py
 - [ ] Actualizar scripts/label_targets.py
 
@@ -49,7 +54,7 @@
 
 - [ ] Implementar agents/sniper_engine.py
 - [ ] Implementar agents/risk_filter.py
-- [ ] Implementar agents/research_engine.py (IM fallback)
+- [ ] Implementar agents/research_engine.py (MB con fallback heuristic_only)
 - [ ] Implementar agents/execution_engine.py
 - [ ] Implementar agents/whale_tracker.py
 - [ ] Probar sniper engine (dry-run)
@@ -77,12 +82,14 @@
 
 ---
 
-## Fase 7: Despliegue nativo (sin Docker)
+## Fase 7: Despliegue nativo (Hermes + systemd)
 
-- [ ] Arrancar servicios nativos (sin Docker)
-- [ ] Configurar Research Engine en IM
+- [ ] Configurar hermes-memecoin.toml (tasks cron)
+- [ ] Arrancar servicios con systemd (no & manual)
+- [ ] Configurar transferencia de datos MB→IM antes de training (scp o http)
 - [ ] Verificar WAL Mode en SQLite
-- [ ] Configurar retención automática (cron job)
+- [ ] Configurar retención automática (cron job cada 6h)
+- [ ] Configurar cron: `0 */6 * * * python /path/memecoin/scripts/cleanup.py`
 
 ---
 
@@ -143,3 +150,18 @@ sqlite3 data/memecoin.db "SELECT model_name, precision_at_10 FROM model_performa
 # Verificar WAL Mode
 sqlite3 data/memecoin.db "PRAGMA journal_mode;"
 # Debe devolver: wal
+
+# Verificar tamaño de base de datos
+sqlite3 data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();"
+```
+
+---
+
+## Cron Jobs (sistema de limpieza)
+
+```bash
+# Limpieza automática cada 6 horas
+0 */6 * * * python /path/memecoin/scripts/cleanup.py >> /path/memecoin/logs/cleanup.log 2>&1
+
+# Verificar tamaño de base de datos cada hora
+0 * * * * sqlite3 /path/memecoin/data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();" >> /path/memecoin/logs/db_size.log 2>&1

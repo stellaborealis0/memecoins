@@ -94,9 +94,9 @@ CREATE TABLE IF NOT EXISTS launches (
   volume_240m                 INTEGER,
 
   -- Micro-ventanas (NUEVO v3.0 para Sniper Engine)
-  volume_10s                  INTEGER,
   volume_30s                  INTEGER,
   volume_60s                  INTEGER,
+  volume_5m                   INTEGER,
 
   -- Transacciones por ventana
   txs_0_5m                    INTEGER,
@@ -104,8 +104,7 @@ CREATE TABLE IF NOT EXISTS launches (
   txs_60_240m                 INTEGER,
 
   -- Micro-ventanas txs (NUEVO v3.0)
-  txs_0_10s                   INTEGER,
-  txs_10_30s                  INTEGER,
+  txs_0_30s                   INTEGER,
   txs_30_60s                  INTEGER,
 
   -- Wallets únicas acumuladas
