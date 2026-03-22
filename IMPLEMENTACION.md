@@ -1,55 +1,63 @@
-# Memecoin Agent v3.0 - Guía de Implementación por Fases
+# Memecoin Agent v3.0-ultralite - Guía de Implementación
 
-**Versión**: 3.0
+**Versión**: 3.0-ultralite
 **Fecha**: Marzo 2026
-**Estado**: En desarrollo
-**Arquitectura**: 4 capas independientes comunicadas via PostgreSQL
+**Estado**: SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
+**Arquitectura**: 4 capas independientes comunicadas via SQLite (WAL Mode)
 
 ---
 
 ## 1. Compatibilidad con Arquitectura SAA v7.2
 
-### 1.1 Requisitos de Hardware (v3.0-lite - MacBook Pro 7,1)
+### 1.1 Requisitos de Hardware (v3.0-ultralite)
 
-| Componente | MB (Agente) | TO (Gateway) | WS (Backend) | IM (Fallback) |
-|------------|-------------|--------------|--------------|---------------|
-| **CPU** | 4 cores (MBP 7,1) | 4+ cores | 8+ cores | 4+ cores |
-| **RAM** | 8 GB | 8GB+ | 32 GB | 8GB+ |
-| **Storage** | 8 GB SSD (eMMC) | 50GB SSD | 200GB SSD | 100GB SSD |
-| **GPU** | No requerida | No requerida | 8 GB VRAM | No requerida |
+| Componente | MB (Agente) | TO (Gateway) | IM (Fallback) |
+|------------|-------------|--------------|---------------|
+| **CPU** | 4 cores (MBP 7,1) | 4+ cores | 4+ cores |
+| **RAM** | 8 GB | 8GB+ | 8 GB |
+| **Storage** | 8 GB SSD (eMMC) | 50GB SSD | 50 GB SSD |
+| **GPU** | No requerida | No requerida | No requerida |
+
+**⚠️ CRÍTICO - Storage MB**: El SSD de 8GB se llenará rápidamente. Implementar:
+- Retención de datos: 24h máximo (configurable en agent_config)
+- Rotación de logs: 10MB máximo por archivo
+- Limpieza automática cada 6h
 
 ### 1.2 Requisitos de Software
 
 | Componente | Versión Mínima | Notas |
 |------------|----------------|-------|
 | Python | 3.11+ | Para todos los scripts |
-| PostgreSQL | 16+ | Con TimescaleDB |
-| Docker | 24+ | Para contenedores |
+| SQLite | 3.37+ | Con WAL Mode (obligatorio) |
 | Tailscale | 1.0+ | Para conectividad |
 
-### 1.3 Compatibilidad con Nodos (v3.0-lite)
+**⚠️ Importante**:
+- NO usar Docker en MB (imposible en 8GB RAM/SSD)
+- NO usar PostgreSQL (no documentado en SAA v7.2)
+- NO usar gRPC (hardware antiguo no lo soporta)
+
+### 1.3 Compatibilidad con Nodos (v3.0-ultralite)
 
 | Nodo | Rol en Memecoin Agent | Estado |
 |------|----------------------|--------|
-| **MB** | Control plane (Sniper, Risk, Telegram) | ✅ Activo |
+| **MB** | Control plane (Sniper, Risk, Telegram, SQLite) | ✅ Activo |
 | **TO** | LiteLLM Gateway (LLM) | ✅ Activo |
-| **WS** | Research Engine (ML + Training) | ⚠️ Ocupado COLMAP |
-| **IM** | Fallback IA (phi) | ✅ Activo |
-| **EW** | Backend extra | ❌ Offline |
+| **IM** | Research Engine (ML + Hipótesis) | ✅ Fallback |
+| **WS** | Ignorado (ocupado COLMAP) | ⚠️ No disponible |
+| **EW** | Ignorado (offline) | ❌ No disponible |
 
-### 1.4 Enrutamiento LLM para Memecoin Agent (v3.0-lite)
+### 1.4 Enrutamiento LLM para Memecoin Agent (v3.0-ultralite)
 
 ```
 Memecoin Agent (MB)
     ↓
 LiteLLM Gateway (TO:8080)
     ↓
-    ├─→ ws-qwen-heavy → WS:11435 (Qwen3.5) [⚠️ Ocupado COLMAP]
     ├─→ im-qwen32b    → IM:11434 (Qwen32B) [✅ Disponible]
-    └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline]
+    └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline - ignorar]
 ```
 
-**Recomendación**: Usar `im-qwen32b` para tareas de Memecoin Agent. Research Engine va a WS (32GB RAM + 8GB VRAM) cuando esté disponible.
+**Nota**: WS está ocupado con COLMAP y no se usa. Research Engine va a IM.
 
 ---
 
@@ -70,7 +78,7 @@ Validar compatibilidad con SAA v7.2 y preparar entorno.
    # Verificar CPU
    lscpu
 
-   # Verificar disco
+   # Verificar disco (CRÍTICO: 8GB)
    df -h
    ```
 
@@ -88,8 +96,8 @@ Validar compatibilidad con SAA v7.2 y preparar entorno.
    # Verificar IM (Ollama)
    curl http://100.68.1.55:11434/api/tags
 
-   # Verificar WS (llama-server)
-   curl http://100.68.1.160:11435/health
+   # Verificar WS (ignorado)
+   # curl http://100.68.1.160:11435/health  # No usar
    ```
 
 4. **Configuración de Variables de Entorno**
@@ -110,48 +118,34 @@ Validar compatibilidad con SAA v7.2 y preparar entorno.
 ### FASE 1: Infraestructura Base (Días 3-5)
 
 #### Objetivo
-Instalar y configurar PostgreSQL + TimescaleDB.
+Configurar SQLite con WAL Mode y crear base de datos.
 
 #### Tareas
 
-1. **Instalar PostgreSQL 16**
+1. **Crear estructura de directorios**
    ```bash
-   # macOS
-   brew install postgresql@16
-   brew services start postgresql@16
-
-   # Ubuntu
-   sudo apt install postgresql-16
-   sudo systemctl start postgresql
+   mkdir -p data logs models
    ```
 
-2. **Instalar TimescaleDB**
+2. **Inicializar base de datos SQLite con WAL Mode**
    ```bash
-   # macOS
-   brew install timescaledb
-
-   # Ubuntu
-   sudo apt install timescaledb-2-postgresql-16
+   # Crear script init_db.py (ver sección 7)
+   python scripts/init_db.py
    ```
 
-3. **Crear Base de Datos**
+3. **Verificar WAL Mode**
    ```bash
-   createdb memecoin_db
-   createuser memecoin_user
-   psql -d memecoin_db -f sql/schema_v3.0.sql
+   sqlite3 data/memecoin.db "PRAGMA journal_mode;"
+   # Debe devolver: wal
    ```
 
-4. **Verificar Instalación**
-   ```sql
-   -- Verificar TimescaleDB
-   SELECT extname FROM pg_extension;
-
-   -- Verificar hypertables
-   SELECT * FROM timescaledb_information.hypertables;
+4. **Verificar tablas**
+   ```bash
+   sqlite3 data/memecoin.db ".tables"
    ```
 
 #### Archivos Generados
-- `sql/memecoin_db.sql` - Schema inicializado
+- `data/memecoin.db` - Base de datos SQLite
 - `logs/installation.log` - Log de instalación
 
 ---
@@ -159,27 +153,26 @@ Instalar y configurar PostgreSQL + TimescaleDB.
 ### FASE 2: Streaming On-Chain (Días 6-8)
 
 #### Objetivo
-Implementar ingesta de datos en tiempo real.
+Implementar ingesta de datos con polling simple.
 
 #### Tareas
 
-1. **Configurar Yellowstone gRPC**
-   - Obtener endpoint de Chainstack
-   - Configurar `YELLOWSTONE_ENDPOINT` en `.env`
-   - Probar conexión con `scripts/stream_onchain_grpc.py --dry-run`
+1. **Configurar Helius RPC**
+   - Obtener API key de Helius (free tier)
+   - Configurar `HELIUS_API_KEY` en `.env`
+   - Probar conexión con `scripts/stream_onchain_polling.py --dry-run`
 
-2. **Configurar PumpPortal WebSocket**
-   - Obtener API key si es necesario
-   - Configurar `PUMPPORTAL_WS_URL` en `.env`
-   - Probar conexión con `scripts/stream_onchain_ws.py --dry-run`
+2. **Implementar Polling Simple**
+   - `scripts/stream_onchain_polling.py` - Polling cada 15s
+   - Filtrar solo transacciones de Pump.fun
+   - Reducir carga CPU en un 90%
 
 3. **Implementar Fallback**
-   - Configurar prioridad de fuentes en `docker-compose.yml`
-   - Probar con `docker compose --profile fallback up`
+   - Configurar prioridad de fuentes en `.env`
+   - Probar con `python scripts/stream_onchain_polling.py`
 
 #### Archivos Generados
-- `scripts/stream_onchain_grpc.py` - Streaming gRPC
-- `scripts/stream_onchain_ws.py` - Streaming WebSocket
+- `scripts/stream_onchain_polling.py` - Polling simple
 - `logs/streaming.log` - Log de streaming
 
 ---
@@ -201,8 +194,8 @@ Implementar features con resolución de 10s, 30s, 60s.
    - `scripts/label_targets.py` - Etiquetado con micro-ventanas
 
 3. **Validar Features**
-   ```sql
-   SELECT * FROM token_features WHERE feature_version LIKE '%micro%';
+   ```bash
+   sqlite3 data/memecoin.db "SELECT * FROM token_features LIMIT 5;"
    ```
 
 #### Archivos Generados
@@ -237,13 +230,14 @@ Implementar las 4 capas independientes.
   - Liquidez
   - Creator bundled buy
 
-##### Capa C: Research Engine
+##### Capa C: Research Engine (IM)
 - `agents/research_engine.py` - ML + Hipótesis
 - APScheduler para:
   - Entrenamiento diario (3am)
   - Hipótesis semanal (lunes 4am)
   - Validación cada 6h
   - Backtest diario (8am)
+- Modo degradado: `heuristic_only` cuando IM no disponible
 
 ##### Capa D: Execution Engine
 - `agents/execution_engine.py` - Ejecución de trades
@@ -251,8 +245,8 @@ Implementar las 4 capas independientes.
   - Límite hard 1 SOL por trade
   - Stop-loss -30%
   - Take-profit +50%, +100%
-  - Jito Bundles
   - Circuit breaker
+  - SQLite con WAL Mode
 
 #### Archivos Generados
 - `agents/sniper_engine.py` - Capa A
@@ -322,39 +316,41 @@ Implementar control remoto desde iOS.
 
 ---
 
-### FASE 7: Docker y Despliegue (Días 24-25)
+### FASE 7: Despliegue Nativo (Días 24-25)
 
 #### Objetivo
-Desplegar sistema completo con Docker Compose.
+Desplegar sistema completo sin Docker.
 
 #### Tareas
 
-1. **Construir Imagen**
+1. **Arrancar servicios nativos**
    ```bash
-   docker compose build
+   # Arrancar todos los servicios en background
+   python scripts/stream_onchain_polling.py &
+   python agents/sniper_engine.py &
+   python agents/risk_filter.py &
+   python agents/execution_engine.py &
+   python agents/whale_tracker.py &
+   python scripts/telegram_bot.py &
    ```
 
-2. **Arrancar Servicios**
+2. **Verificar servicios**
    ```bash
-   docker compose up -d
+   # Verificar procesos
+   ps aux | grep python
+
+   # Verificar logs
+   tail -f logs/*.log
    ```
 
-3. **Verificar Servicios**
+3. **Configurar Research Engine en IM**
    ```bash
-   docker compose ps
-   docker compose logs -f
-   ```
-
-4. **Configurar Backfill**
-   ```bash
-   docker compose exec agent python scripts/backfill_historical.py
+   # En IM (fallback)
+   python agents/research_engine.py &
    ```
 
 #### Archivos Generados
-- `docker-compose.yml` - Orquestación
-- `Dockerfile` - Imagen
-- `docker-entrypoint.sh` - Entrypoint
-- `logs/docker.log` - Log de Docker
+- `logs/deployment.log` - Log de despliegue
 
 ---
 
@@ -391,29 +387,29 @@ Validar sistema completo antes de producción.
 
 ---
 
-## 3. Especificación de Recursos (v3.0-lite)
+## 3. Especificación de Recursos (v3.0-ultralite)
 
 ### 3.1 Recursos por Servicio
 
 | Servicio | CPU | RAM | Storage | Notas |
 |----------|-----|-----|---------|-------|
-| sqlite | 1 | 512MB | 1GB | SQLite (reemplaza PostgreSQL) |
-| stream-grpc | 1 | 1GB | 1GB | Streaming on-chain (polling) |
+| SQLite DB | 1 | 512MB | 1GB | SQLite con WAL Mode |
+| stream-polling | 1 | 1GB | 1GB | Polling cada 15s |
 | sniper | 1 | 2GB | 1GB | Sniper Engine |
 | risk-filter | 1 | 1GB | 1GB | Risk Filter |
-| research | 4 | 32GB | 10GB | Research Engine (WS - ML + Training) |
+| research | 4 | 8GB | 10GB | Research Engine (IM - CPU-only) |
 | execution | 1 | 2GB | 1GB | Execution Engine |
 | whale-tracker | 1 | 1GB | 1GB | Whale Tracker |
 | telegram-bot | 1 | 1GB | 1GB | Telegram Bot |
 
-**Total MB (8GB RAM)**: 8GB RAM suficiente para MB
-**Total WS (32GB RAM)**: 32GB RAM para Research Engine
+**Total MB (8GB RAM)**: 8GB RAM suficiente (sin Docker, sin PostgreSQL)
+**Total IM (8GB RAM)**: 8GB RAM para Research Engine
 
-### 3.2 Recursos por Fase (v3.0-lite)
+### 3.2 Recursos por Fase (v3.0-ultralite)
 
-| Fase | CPU | RAM MB | RAM WS | Storage | Duración |
+| Fase | CPU | RAM MB | RAM IM | Storage | Duración |
 |------|-----|--------|--------|---------|----------|
-| 0 | 2 | 4GB | - | 10GB | 2 días |
+| 0 | 2 | 4GB | - | 1GB | 2 días |
 | 1 | 2 | 2GB | - | 1GB | 3 días |
 | 2 | 2 | 2GB | - | 1GB | 3 días |
 | 3 | 4 | 4GB | - | 1GB | 3 días |
@@ -424,17 +420,6 @@ Validar sistema completo antes de producción.
 | 8 | 4 | 4GB | - | 1GB | 3 días |
 
 **Total MB**: 8GB RAM suficiente (sin Docker, sin PostgreSQL)
-**Total WS**: 32GB RAM para Research Engine (cuando esté disponible)
-
-### 3.3 Costes Estimados (v3.0-lite - Free Tier)
-
-| Componente | Coste Mensual | Notas |
-|------------|---------------|-------|
-| RPC Solana | **$0** | Helius Free Tier (100k req/mes) o RPC público |
-| DexScreener API | **$0** | Sin auth necesaria |
-| CoinGecko API | **$0** | Sin auth necesaria |
-| RugCheck API | **$0** | API pública de Solana |
-| **Total Estimado** | **$0/mes** | Free tier suficiente para MVP |
 
 ---
 
@@ -443,79 +428,85 @@ Validar sistema completo antes de producción.
 ### 4.1 Verificar Estado del Sistema
 
 ```bash
-# Verificar todos los servicios
-docker compose ps
+# Verificar procesos
+ps aux | grep python
 
 # Verificar logs en tiempo real
-docker compose logs -f
+tail -f logs/*.log
 
-# Verificar base de datos
-docker compose exec postgres psql -U memecoin_user -d memecoin_db -c "SELECT COUNT(*) FROM tokens;"
+# Verificar base de datos SQLite
+sqlite3 data/memecoin.db "SELECT COUNT(*) FROM tokens;"
 
 # Verificar métricas
-docker compose exec postgres psql -U memecoin_user -d memecoin_db -c "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
+sqlite3 data/memecoin.db "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
 ```
 
 ### 4.2 Verificar Latencia
 
 ```bash
 # Verificar latencia de streaming
-docker compose logs stream-grpc | grep "Token insertado"
+tail -f logs/streaming.log | grep "Token insertado"
 
 # Verificar latencia de sniper
-docker compose logs sniper | grep "score="
+tail -f logs/sniper.log | grep "score="
 
 # Verificar latencia de risk filter
-docker compose logs risk-filter | grep "Score:"
+tail -f logs/risk-filter.log | grep "Score:"
 ```
 
 ### 4.3 Verificar Métricas
 
-```sql
--- Tokens por fuente
-SELECT data_source, COUNT(*) FROM tokens GROUP BY data_source;
+```bash
+# Tokens por fuente
+sqlite3 data/memecoin.db "SELECT data_source, COUNT(*) FROM tokens GROUP BY data_source;"
 
--- Distribución de targets
-SELECT pump_100pc_24h, rug_pull_48h, still_active_7d, COUNT(*)
-FROM tokens WHERE label_completed = TRUE GROUP BY 1,2,3 ORDER BY 4 DESC;
+# Distribución de targets
+sqlite3 data/memecoin.db "SELECT pump_100pc_24h, rug_pull_48h, still_active_7d, COUNT(*) FROM tokens WHERE label_completed = 1 GROUP BY 1,2,3 ORDER BY 4 DESC;"
 
--- Últimas métricas de modelos
-SELECT model_name, precision_at_10, precision_at_20, auc_roc, created_at
-FROM model_performance ORDER BY created_at DESC LIMIT 9;
+# Últimas métricas de modelos
+sqlite3 data/memecoin.db "SELECT model_name, precision_at_10, precision_at_20, auc_roc, created_at FROM model_performance ORDER BY created_at DESC LIMIT 9;"
 ```
 
 ---
 
 ## 5. Troubleshooting
 
-### 5.1 PostgreSQL no inicia
+### 5.1 Error: database is locked
 
-```bash
-# Verificar logs
-docker compose logs postgres
+**Causa**: SQLite sin WAL mode o múltiples escritores simultáneos.
 
-# Reiniciar
-docker compose restart postgres
+**Solución**: Asegurar que todos los scripts ejecuten al conectar:
+```python
+conn.execute("PRAGMA journal_mode=WAL;")
+conn.execute("PRAGMA busy_timeout=5000;")
 ```
 
-### 5.2 Streaming no conecta
+### 5.2 Error: No space left on device
 
+**Causa**: SSD de 8GB lleno por logs y datos.
+
+**Solución**:
+1. Limpieza automática cada 6h (configurable)
+2. Rotación de logs: 10MB máximo
+3. Retención de datos: 24h máximo
+
+### 5.3 Error: Research Engine no responde
+
+**Causa**: IM está ocupado o no disponible.
+
+**Solución**: El sistema opera en modo `heuristic_only` automáticamente.
+
+### 5.4 Error: Streaming no conecta
+
+**Causa**: Helius RPC no accesible.
+
+**Solución**:
 ```bash
 # Verificar endpoint
-curl -v $YELLOWSTONE_ENDPOINT
+curl -v https://mainnet.helius-rpc.com/
 
 # Verificar firewall
 tailscale status
-```
-
-### 5.3 Agentes no se conectan
-
-```bash
-# Verificar red
-docker compose exec agent ping postgres
-
-# Verificar variables de entorno
-docker compose exec agent env | grep DATABASE_URL
 ```
 
 ---
@@ -528,7 +519,7 @@ docker compose exec agent env | grep DATABASE_URL
 - [ ] Latencia Sniper < 2s
 - [ ] Latencia Risk Filter < 500ms
 - [ ] Uptime > 99.5%
-- [ ] 8 semanas consecutivas de validación
+- [ ] SQLite con WAL Mode
 
 ### 6.2 Seguridad
 
@@ -547,9 +538,79 @@ docker compose exec agent env | grep DATABASE_URL
 
 ---
 
-## 7. Integración con SAA v7.2 (v3.0-lite)
+## 7. Scripts Esenciales
 
-### 7.1 Configuración de LiteLLM
+### 7.1 init_db.py - Inicializar SQLite con WAL Mode
+
+```python
+#!/usr/bin/env python3
+"""Inicializar base de datos SQLite con WAL Mode."""
+
+import sqlite3
+import os
+
+DB_PATH = os.getenv("DATABASE_PATH", "data/memecoin.db")
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+
+    # WAL Mode obligatorio para concurrencia
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA cache_size=-100000;")
+
+    # Cargar schema
+    with open("sql/schema_v3.0.sql", "r") as f:
+        conn.executescript(f.read())
+
+    conn.commit()
+    conn.close()
+    print(f"Base de datos inicializada: {DB_PATH}")
+
+if __name__ == "__main__":
+    init_db()
+```
+
+### 7.2 db_manager.py - Gestión de base de datos
+
+```python
+#!/usr/bin/env python3
+"""Gestión de base de datos SQLite con retención automática."""
+
+import sqlite3
+import os
+from datetime import datetime, timedelta
+
+DB_PATH = os.getenv("DATABASE_PATH", "data/memecoin.db")
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "1"))
+
+def cleanup_old_data():
+    """Eliminar datos antiguos según retención."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL;")
+
+    cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
+
+    # Borrar launches antiguos
+    conn.execute("DELETE FROM launches WHERE time < ?", (cutoff,))
+
+    # Borrar token_features antiguos
+    conn.execute("DELETE FROM token_features WHERE created_at < ?", (cutoff,))
+
+    conn.commit()
+    conn.close()
+    print(f"Limpieza completada: datos anteriores a {cutoff}")
+
+if __name__ == "__main__":
+    cleanup_old_data()
+```
+
+---
+
+## 8. Integración con SAA v7.2 (v3.0-ultralite)
+
+### 8.1 Configuración de LiteLLM
 
 ```yaml
 # litellm_config.yaml
@@ -561,15 +622,18 @@ model_list:
       api_key: ${LITELLM_API_KEY}
 ```
 
-### 7.2 Configuración de Research Engine (WS)
+### 8.2 Configuración de Research Engine (IM)
 
 ```bash
-# Research Engine se ejecuta en WS (32GB RAM + 8GB VRAM)
+# Research Engine se ejecuta en IM (8GB RAM, CPU-only)
 # Accede a MB via Tailscale para base de datos SQLite
 # LLM access via TO:8080
+
+# Modo degradado: heuristic_only cuando IM no disponible
+export RESEARCH_MODE=heuristic_only
 ```
 
-### 7.3 Configuración de Tailscale
+### 8.3 Configuración de Tailscale
 
 ```bash
 # Verificar conectividad
@@ -579,18 +643,17 @@ tailscale status
 tailscale netcheck
 ```
 
-### 7.4 RPC Solana Free Tier (Sin coste)
+### 8.4 RPC Solana Free Tier (Sin coste)
 
 | RPC | Coste | Límite | Notas |
 |-----|-------|--------|-------|
 | Helius Free Tier | $0 | 100k req/mes | Sin API key necesaria |
 | QuickNode Free Tier | $0 | 100 req/día | Sin API key necesaria |
 | RPC Pool | $0 | 100 req/día | Sin API key necesaria |
-| Triton One | $0 | 100k req/mes | Sin API key necesaria |
 
 **Recomendación**: Usar Helius Free Tier (100k req/mes) o RPC público para MVP.
 
-### 7.5 APIs Públicas (Sin coste)
+### 8.5 APIs Públicas (Sin coste)
 
 | API | Coste | Notas |
 |-----|-------|-------|
@@ -601,20 +664,17 @@ tailscale netcheck
 
 ---
 
-## 8. Próximos Pasos
+## 9. Próximos Pasos
 
-1. **Validar compatibilidad con SAA v7.2** (FASE 0)
-2. **Instalar PostgreSQL + TimescaleDB** (FASE 1)
-3. **Implementar streaming on-chain** (FASE 2)
-4. **Implementar micro-ventanas** (FASE 3)
-5. **Implementar 4 capas** (FASE 4)
-6. **Implementar whale tracker** (FASE 5)
-7. **Implementar Telegram Bot** (FASE 6)
-8. **Desplegar con Docker** (FASE 7)
-9. **Validar sistema** (FASE 8)
+1. **Validar hardware** (MB 8GB + IM 8GB)
+2. **Instalar dependencias** (pip install -r requirements.txt)
+3. **Inicializar SQLite** (python scripts/init_db.py)
+4. **Configurar variables** (config/.env)
+5. **Arrancar servicios** (scripts/telegram_bot.py, agents/*.py)
+6. **Validar sistema** (comandos de Telegram)
 
 ---
 
-**Versión**: 3.0
+**Versión**: 3.0-ultralite
 **Fecha**: Marzo 2026
-**Estado**: En desarrollo
+**Estado**: SAA v7.2 compliant

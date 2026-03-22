@@ -1,23 +1,25 @@
-# Memecoin Agent v3.0-lite
+# Memecoin Agent v3.0-ultralite
 
 Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 
-**Versión**: 3.0-lite (Optimizado para MacBook Pro 7,1 - 8GB RAM)
+**Versión**: 3.0-ultralite (Optimizado para MacBook Pro 7,1 - 8GB RAM)
+
+**Estado**: SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
 
 ---
 
-## Arquitectura v3.0-lite
+## Arquitectura v3.0-ultralite
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│              Memecoin Agent v3.0-lite (MB: 8GB RAM)                │
+│           Memecoin Agent v3.0-ultralite (MB: 8GB RAM)              │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Capa A - Sniper Engine                     │  │
-│  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
-│  │  │  Stream polling    │  │  Stream WebSocket (fallback)   │   │  │
-│  │  │  (ingesta polling) │  │  (fallback)                   │   │  │
-│  │  └─────────┬──────────┘  └────────────────────────────────┘   │  │
+│  │  ┌────────────────────┐                                       │  │
+│  │  │  Polling RPC       │                                       │  │
+│  │  │  (15s Helius)      │                                       │  │
+│  │  └─────────┬──────────┘                                       │  │
 │  │            │                                                   │  │
 │  │            ▼                                                   │  │
 │  │  ┌─────────────────────────────────────────────────────────┐   │  │
@@ -39,10 +41,11 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    Capa C - Research Engine                   │  │
 │  │  ┌─────────────────────────────────────────────────────────┐   │  │
-│  │  │  XGBoost Models (WS: 32GB RAM + 8GB VRAM)              │   │  │
+│  │  │  XGBoost Models (IM: CPU-only, 8GB RAM)                │   │  │
 │  │  │  - Pump 24h        │  │  - Hipótesis LLM (TO:8080)      │   │  │
 │  │  │  - Rug 48h         │  │  - Validación cada 6h          │   │  │
 │  │  │  - Survival 7d     │  │  - Backtest diario             │   │  │
+│  │  │  - Modo: heuristic_only (fallback)                     │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                       │
@@ -51,8 +54,8 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │  │                    Capa D - Execution Engine                  │  │
 │  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
 │  │  │  SQLite DB         │  │  Circuit Breaker               │   │  │
-│  │  │  - Stop-loss -30%  │  │  - Max 1 SOL por trade         │   │  │
-│  │  │  - Take-profit     │  │  - Max 10 trades activos       │   │  │
+│  │  │  - WAL Mode        │  │  - Stop-loss -30%              │   │  │
+│  │  │  - Retention 24h   │  │  - Max 1 SOL por trade         │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                       │
@@ -72,47 +75,10 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 | Sniper Engine | MB | 2GB | Detección heurística <2s |
 | Risk Filter | MB | 1GB | Evaluación <500ms |
 | Telegram Bot | MB | 1GB | Control remoto |
-| SQLite DB | MB | 512MB | Base de datos local |
-| Streaming | MB | 1GB | Polling cada 1-2s |
-| Research Engine | WS | 32GB | ML + Training (32GB RAM + 8GB VRAM) |
+| SQLite DB | MB | 512MB | Base de datos local (WAL Mode) |
+| Streaming | MB | 1GB | Polling cada 15s (Helius) |
+| Research Engine | IM | 8GB | ML + Training (CPU-only, fallback) |
 | LLM Access | TO | - | Gateway LiteLLM (8080) |
-
----
-
-## Estructura de Directorios
-
-```
-memecoins/
-├── agents/                    # Módulos de las 4 capas
-│   ├── sniper_engine.py      # Capa A - Detección heurística
-│   ├── risk_filter.py        # Capa B - Evaluación de riesgo
-│   ├── research_engine.py    # Capa C - ML + Hipótesis (WS)
-│   ├── execution_engine.py   # Capa D - Ejecución de trades
-│   └── whale_tracker.py      # Estrategia spray
-├── scripts/                   # Scripts de ETL y ML
-│   ├── stream_onchain_grpc.py
-│   ├── stream_onchain_ws.py
-│   ├── collect_onchain.py
-│   ├── compute_features.py
-│   ├── label_targets.py
-│   ├── train_models_all.py
-│   ├── generate_hypotheses_llm.py
-│   ├── validate_hypotheses.py
-│   ├── backtest_report.py
-│   └── telegram_bot.py
-├── config/
-│   ├── .env.example
-│   └── hermes-memecoin.toml
-├── sql/
-│   └── schema_v3.0.sql
-├── models/                    # Modelos entrenados (.pkl)
-├── logs/                      # Logs de ejecución
-├── docker-compose.yml
-├── Dockerfile
-├── docker-entrypoint.sh
-├── requirements.txt
-└── README.md
-```
 
 ---
 
@@ -121,13 +87,18 @@ memecoins/
 ### MacBook Pro 7,1 (MB)
 - **OS**: Ubuntu 24.04
 - **RAM**: 8 GB
-- **Storage**: 8 GB SSD (eMMC)
+- **Storage**: 8 GB SSD (eMMC) - **CRÍTICO**
 - **CPU**: Intel Core i7 (2010)
 
-### WS (Backend Research)
-- **RAM**: 32 GB
-- **GPU**: 8 GB VRAM
-- **Storage**: 200 GB SSD
+**⚠️ Importante**: El SSD de 8GB se llenará rápidamente. Implementar:
+- Retención de datos: 24h máximo (configurable en agent_config)
+- Rotación de logs: 10MB máximo por archivo
+- Limpieza automática cada 6h
+
+### IM (Fallback Research)
+- **RAM**: 8 GB
+- **CPU**: 4+ cores
+- **Storage**: 50 GB SSD
 
 ### TO (Gateway)
 - **LiteLLM**: Puerto 8080
@@ -139,17 +110,20 @@ memecoins/
 ```bash
 # Clonar y configurar
 git clone https://github.com/tu-usuario/memecoin-agent.git
-cd memecoin-agent
+cd memecoins
 
 # Copiar variables de entorno
 cp config/.env.example config/.env
 nano config/.env  # Rellenar con tus API keys y tokens
 
-# Instalar dependencias
+# Instalar dependencias (ultralite: ~200MB)
 pip install -r requirements.txt
 
-# Arrancar servicios
-python scripts/stream_onchain_grpc.py &
+# Inicializar base de datos SQLite con WAL mode
+python scripts/init_db.py
+
+# Arrancar servicios (sin Docker)
+python scripts/stream_onchain_polling.py &
 python agents/sniper_engine.py &
 python agents/risk_filter.py &
 python agents/execution_engine.py &
@@ -159,12 +133,12 @@ python scripts/telegram_bot.py &
 
 ---
 
-## Instalación Research Engine (WS - 32GB RAM)
+## Instalación Research Engine (IM - 8GB RAM)
 
 ```bash
-# En WS (32GB RAM + 8GB VRAM)
+# En IM (fallback)
 git clone https://github.com/tu-usuario/memecoin-agent.git
-cd memecoin-agent
+cd memecoins
 
 # Copiar variables de entorno
 cp config/.env.example config/.env
@@ -221,7 +195,7 @@ python agents/research_engine.py
 ### Tablas Principales
 
 - `tokens`: Metadatos de tokens y predicciones
-- `launches`: Series temporales de micro-ventanas (TimescaleDB)
+- `launches`: Series temporales de micro-ventanas
 - `token_features`: Features versionadas para ML
 - `token_hypotheses`: Hipótesis falsables con validación bayesiana
 - `model_performance`: Métricas de modelos (precision@top_k)
@@ -229,6 +203,17 @@ python agents/research_engine.py
 - `trades`: Historial de trades ejecutados
 - `risk_events`: Eventos de evaluación de riesgo
 - `tracked_wallets`: Wallets monitoreadas (whales, creators)
+
+### SQLite WAL Mode (Obligatorio)
+
+Todos los scripts deben ejecutar al conectar:
+
+```python
+conn.execute("PRAGMA journal_mode=WAL;")
+conn.execute("PRAGMA busy_timeout=5000;")
+conn.execute("PRAGMA synchronous=NORMAL;")
+conn.execute("PRAGMA cache_size=-100000;")
+```
 
 ---
 
@@ -248,14 +233,15 @@ python agents/research_engine.py
 - Fuentes: RugCheck API, historial creador, concentración
 - Bloquea si risk_score > 0.65
 
-### Capa C - Research Engine (WS)
+### Capa C - Research Engine (IM)
 - Entrena modelos XGBoost diariamente
 - Genera hipótesis semanalmente con LLM
 - Validación bayesiana de hipótesis
-- Requiere 32GB RAM + 8GB VRAM
+- Modo degradado: `heuristic_only` cuando IM no disponible
 
 ### Capa D - Execution Engine
-- SQLite DB (no PostgreSQL)
+- SQLite DB (WAL Mode)
+- Retención: 24h máximo (configurable)
 - Stop-loss -30%, Take-profit +50% y +100%
 - Circuit breaker tras 3 pérdidas
 
@@ -287,7 +273,8 @@ tail -f logs/sniper.log
 tail -f logs/risk-filter.log
 
 # Inspeccionar base de datos SQLite
-sqlite3 data/memecoin.db
+sqlite3 data/memecoin.db "SELECT COUNT(*) FROM tokens;"
+sqlite3 data/memecoin.db "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
 ```
 
 ---
@@ -301,10 +288,11 @@ Memecoin Agent (MB)
     ↓
 LiteLLM Gateway (TO:8080)
     ↓
-    ├─→ ws-qwen-heavy → WS:11435 (Qwen3.5) [⚠️ Ocupado COLMAP]
     ├─→ im-qwen32b    → IM:11434 (Qwen32B) [✅ Disponible]
-    └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline]
+    └─→ ew-qwen       → EW:11434 (Qwen3.5) [❌ Offline - ignorar]
 ```
+
+**Nota**: WS está ocupado con COLMAP y no se usa. Research Engine va a IM.
 
 ### Configuración de LiteLLM
 
@@ -317,6 +305,103 @@ model_list:
       api_base: http://100.68.1.180:8080
       api_key: ${LITELLM_API_KEY}
 ```
+
+### RPC Solana Free Tier (Sin coste)
+
+| RPC | Coste | Límite | Notas |
+|-----|-------|--------|-------|
+| Helius Free Tier | $0 | 100k req/mes | Sin API key necesaria |
+| QuickNode Free Tier | $0 | 100 req/día | Sin API key necesaria |
+| RPC Pool | $0 | 100 req/día | Sin API key necesaria |
+
+**Recomendación**: Usar Helius Free Tier (100k req/mes) o RPC público para MVP.
+
+### APIs Públicas (Sin coste)
+
+| API | Coste | Notas |
+|-----|-------|-------|
+| DexScreener API | $0 | Sin auth necesaria |
+| CoinGecko API | $0 | Sin auth necesaria |
+| SolanaFM API | $0 | Sin auth necesaria |
+| RugCheck API | $0 | API pública de Solana |
+
+---
+
+## Costes Estimados (Free Tier)
+
+| Componente | Coste Mensual | Notas |
+|------------|---------------|-------|
+| RPC Solana | **$0** | Helius Free Tier (100k req/mes) |
+| DexScreener API | **$0** | Sin auth necesaria |
+| CoinGecko API | **$0** | Sin auth necesaria |
+| RugCheck API | **$0** | API pública de Solana |
+| **Total Estimado** | **$0/mes** | Free tier suficiente para MVP |
+
+---
+
+## Troubleshooting
+
+### Error: database is locked
+
+**Causa**: SQLite sin WAL mode o múltiples escritores simultáneos.
+
+**Solución**: Asegurar que todos los scripts ejecuten:
+```python
+conn.execute("PRAGMA journal_mode=WAL;")
+conn.execute("PRAGMA busy_timeout=5000;")
+```
+
+### Error: No space left on device
+
+**Causa**: SSD de 8GB lleno por logs y datos.
+
+**Solución**:
+1. Limpieza automática cada 6h (configurable)
+2. Rotación de logs: 10MB máximo
+3. Retención de datos: 24h máximo
+
+### Error: Research Engine no responde
+
+**Causa**: IM está ocupado o no disponible.
+
+**Solución**: El sistema opera en modo `heuristic_only` automáticamente.
+
+---
+
+## Checklist de Validación Pre-Producción
+
+### Hardware
+- [ ] MB: 8GB RAM, 8GB SSD (eMMC)
+- [ ] IM: 8GB RAM, 4+ cores
+- [ ] TO: LiteLLM Gateway en puerto 8080
+
+### Software
+- [ ] SQLite con WAL mode
+- [ ] Python 3.11+
+- [ ] Dependencias instaladas (requirements.txt)
+- [ ] Variables de entorno configuradas
+
+### Red
+- [ ] Tailscale conectado
+- [ ] Acceso a LiteLLM Gateway
+- [ ] Acceso a RPC Solana (Helius)
+
+### Seguridad
+- [ ] Límite hard 1 SOL por trade
+- [ ] Stop-loss -30%
+- [ ] Circuit breaker configurado
+- [ ] Execution PIN configurado
+
+---
+
+## Próximos Pasos
+
+1. **Validar hardware** (MB 8GB + IM 8GB)
+2. **Instalar dependencias** (pip install -r requirements.txt)
+3. **Inicializar SQLite** (scripts/init_db.py)
+4. **Configurar variables** (config/.env)
+5. **Arrancar servicios** (scripts/telegram_bot.py, agents/*.py)
+6. **Validar sistema** (comandos de Telegram)
 
 ---
 
