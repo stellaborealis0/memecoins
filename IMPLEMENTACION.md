@@ -426,13 +426,15 @@ Validar sistema completo antes de producción.
 **Total MB**: 8GB RAM suficiente (sin Docker, sin PostgreSQL)
 **Total WS**: 32GB RAM para Research Engine (cuando esté disponible)
 
-### 3.3 Costes Estimados (v3.0-lite)
+### 3.3 Costes Estimados (v3.0-lite - Free Tier)
 
 | Componente | Coste Mensual | Notas |
 |------------|---------------|-------|
-| Helius RPC | $50-100 | 100k req/mes |
-| Bitquery | $50-100 | Free tier suficiente |
-| **Total Estimado** | **$100-200/mes** | Sin PostgreSQL ni infraestructura |
+| RPC Solana | **$0** | Helius Free Tier (100k req/mes) o RPC público |
+| DexScreener API | **$0** | Sin auth necesaria |
+| CoinGecko API | **$0** | Sin auth necesaria |
+| RugCheck API | **$0** | API pública de Solana |
+| **Total Estimado** | **$0/mes** | Free tier suficiente para MVP |
 
 ---
 
@@ -576,6 +578,26 @@ tailscale status
 # Verificar rutas
 tailscale netcheck
 ```
+
+### 7.4 RPC Solana Free Tier (Sin coste)
+
+| RPC | Coste | Límite | Notas |
+|-----|-------|--------|-------|
+| Helius Free Tier | $0 | 100k req/mes | Sin API key necesaria |
+| QuickNode Free Tier | $0 | 100 req/día | Sin API key necesaria |
+| RPC Pool | $0 | 100 req/día | Sin API key necesaria |
+| Triton One | $0 | 100k req/mes | Sin API key necesaria |
+
+**Recomendación**: Usar Helius Free Tier (100k req/mes) o RPC público para MVP.
+
+### 7.5 APIs Públicas (Sin coste)
+
+| API | Coste | Notas |
+|-----|-------|-------|
+| DexScreener API | $0 | Sin auth necesaria |
+| CoinGecko API | $0 | Sin auth necesaria |
+| SolanaFM API | $0 | Sin auth necesaria |
+| RugCheck API | $0 | API pública de Solana |
 
 ---
 
