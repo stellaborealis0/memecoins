@@ -1,0 +1,245 @@
+version: "3.9"
+
+services:
+  # ─── Base de datos ───────────────────────────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: memecoin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema_v3.0.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Stream gRPC (Capa A - ingesta streaming) ────────────────────
+  stream-grpc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-stream-grpc
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      STREAM_SOURCE: grpc
+    command: python scripts/stream_onchain_grpc.py
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Stream WebSocket (fallback) ─────────────────────────────────
+  stream-ws:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-stream-ws
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      STREAM_SOURCE: websocket
+    command: python scripts/stream_onchain_ws.py
+    profiles:
+      - fallback
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Sniper Engine (Capa A - detección) ──────────────────────────
+  sniper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-sniper
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      SNIPER_ENABLED: ${SNIPER_ENABLED:-false}
+    command: python agents/sniper_engine.py
+    profiles:
+      - sniper
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Risk Filter (Capa B - evaluación) ───────────────────────────
+  risk-filter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-risk-filter
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      RISK_THRESHOLD: ${RISK_THRESHOLD:-0.65}
+    ports:
+      - "8001:8001"
+    command: python agents/risk_filter.py
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Research Engine (Capa C - ML + hipótesis) ───────────────────
+  research:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-research
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      LITELLM_ENDPOINT: ${LITELLM_ENDPOINT}
+      FEATURE_VERSION: ${FEATURE_VERSION:-v1-onchain-v73}
+    command: python agents/research_engine.py
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Execution Engine (Capa D - trades) ──────────────────────────
+  execution:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-execution
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      EXECUTION_MODE: ${EXECUTION_MODE:-research}
+      MAX_POSITION_SOL: ${MAX_POSITION_SOL:-0.5}
+      JITO_BLOCK_ENGINE_URL: ${JITO_BLOCK_ENGINE_URL}
+      JITO_TIP_SOL: ${JITO_TIP_SOL:-0.01}
+    command: python agents/execution_engine.py
+    profiles:
+      - execution
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Whale Tracker (spray strategy) ──────────────────────────────
+  whale-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-whale-tracker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      SPRAY_ENABLED: ${SPRAY_ENABLED:-false}
+    command: python agents/whale_tracker.py
+    profiles:
+      - spray
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Telegram Bot ────────────────────────────────────────────────
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memecoin-telegram-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - config/.env
+    environment:
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}
+        @postgres:5432/${POSTGRES_DB}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_USERS: ${TELEGRAM_ALLOWED_USERS}
+    command: python scripts/telegram_bot.py
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─── Adminer — UI web para DB (opcional) ─────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: memecoin-adminer
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    profiles:
+      - debug
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,50 @@
+# ============================================================
+# Memecoin Agent v3.0 - Requirements.txt
+# ============================================================
+
+# --- Core ---
+psycopg2-binary>=2.9
+solana>=0.34
+solders>=0.21
+websockets>=12.0
+requests>=2.31
+
+# --- ML ---
+xgboost>=2.0
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.26
+
+# --- Scheduler ---
+apscheduler>=3.10
+
+# --- LLM ---
+openai>=1.30
+
+# --- Telegram ---
+python-telegram-bot>=20.0
+
+# --- Retry ---
+tenacity>=8.2
+
+# --- Data ---
+pyarrow>=14.0
+kaggle>=1.6
+
+# --- Opcional: Bitquery ---
+gql>=3.4
+requests-toolbelt>=1.0
+
+# --- Opcional: Yellowstone gRPC (v3.0 streaming) ---
+grpcio>=1.60
+grpcio-tools>=1.60
+protobuf>=4.25
+
+# --- Opcional: Jito Py RPC (MEV protection) ---
+# jito-py-rpc>=0.1.0
+
+# --- Utilidades adicionales ---
+python-dotenv>=1.0.1
+pydantic>=2.7.1
+schedule>=1.2.1
+structlog>=24.1.0
