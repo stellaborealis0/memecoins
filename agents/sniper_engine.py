@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 """
 sniper_engine.py
 
-Capa A - Sniper Engine
+Capa A - Sniper Engine (v3.0-ultralite-fixed)
 Detecta tokens nuevos y calcula score heurístico en <2s
 
 Arquitectura:
@@ -11,6 +12,8 @@ Arquitectura:
 - No toca modelos ML. No llama al LLM. Nunca.
 
 Latencia objetivo: <2 segundos desde inserción en DB hasta decisión
+
+PostgreSQL - Conexión centralizada
 """
 
 import os
@@ -19,10 +22,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-import psycopg2
-
 # Configuración
-DB_DSN = os.getenv("DATABASE_URL")
 RISK_THRESHOLD = float(os.getenv("RISK_THRESHOLD", "0.65"))
 SNIPER_TX_VELOCITY_THRESHOLD = float(os.getenv("SNIPER_TX_VELOCITY_THRESHOLD", "3.0"))
 SNIPER_WALLET_THRESHOLD = int(os.getenv("SNIPER_WALLET_THRESHOLD", "10"))
@@ -31,13 +31,19 @@ SNIPER_BUY_RATIO_THRESHOLD = float(os.getenv("SNIPER_BUY_RATIO_THRESHOLD", "0.70
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sniper_engine")
 
+from db import get_conn
+
+
+def get_db_connection():
+    """Obtener conexión a PostgreSQL."""
+    return get_conn()
+
 
 def get_micro_features(cursor, token_id: int) -> dict:
     """Obtener micro-features de un token."""
     cursor.execute("""
         SELECT
-            MAX(txs_0_10s) AS txs_0_10s,
-            MAX(txs_10_30s) AS txs_10_30s,
+            MAX(txs_0_30s) AS txs_0_30s,
             MAX(txs_30_60s) AS txs_30_60s,
             MAX(unique_wallets_0_10m) AS unique_wallets_0_10m,
             MAX(buy_tx_0_30m) AS buy_tx_0_30m,
@@ -52,7 +58,7 @@ def get_micro_features(cursor, token_id: int) -> dict:
 
     row = cursor.fetchone()
     cols = [
-        "txs_0_10s", "txs_10_30s", "txs_30_60s",
+        "txs_0_30s", "txs_30_60s",
         "unique_wallets_0_10m", "buy_tx_0_30m", "sell_tx_0_30m",
         "liquidity_add_0_10m", "liquidity_remove_0_2h",
         "top_10_wallets_pct_0_1h", "bonding_curve_progress_pct"
@@ -70,8 +76,8 @@ def calculate_sniper_score(features: dict) -> float:
     max_score = 100.0
 
     # 1. Velocidad de transacciones (0-30 puntos)
-    txs_0_10s = features.get("txs_0_10s", 0) or 0
-    tx_velocity = txs_0_10s / 10.0  # txs por segundo en 10s
+    txs_0_30s = features.get("txs_0_30s", 0) or 0
+    tx_velocity = txs_0_30s / 30.0  # txs por segundo en 30s
     if tx_velocity >= SNIPER_TX_VELOCITY_THRESHOLD:
         score += 30 * min(tx_velocity / SNIPER_TX_VELOCITY_THRESHOLD, 1.0)
 
@@ -159,16 +165,16 @@ async def process_token(cursor, token_id: int, mint: str, created_at: datetime):
 
 async def sniper_loop():
     """Loop principal del sniper engine."""
-    logger.info("=== Sniper Engine iniciado ===")
+    logger.info("=== Sniper Engine (v3.0-ultralite-fixed) iniciado ===")
 
     while True:
         try:
-            conn = psycopg2.connect(DB_DSN)
+            conn = get_db_connection()
             cursor = conn.cursor()
 
-            # Buscar tokens nuevos sin procesar
+            # Buscar tokens nuevos sin procesar (últimos 5 minutos)
             cursor.execute("""
-                SELECT id, address, created_at
+                SELECT id, mint, created_at
                 FROM tokens
                 WHERE created_at >= NOW() - INTERVAL '5 minutes'
                   AND NOT EXISTS (
@@ -196,7 +202,7 @@ async def sniper_loop():
 
 async def main():
     """Función principal."""
-    logger.info("=== Memecoin Agent v3.0 - Sniper Engine ===")
+    logger.info("=== Memecoin Agent v3.0-ultralite-fixed - Sniper Engine ===")
     logger.info(f"RISK_THRESHOLD: {RISK_THRESHOLD}")
     logger.info(f"SNIPER_TX_VELOCITY_THRESHOLD: {SNIPER_TX_VELOCITY_THRESHOLD}")
     logger.info(f"SNIPER_WALLET_THRESHOLD: {SNIPER_WALLET_THRESHOLD}")

@@ -1,0 +1,110 @@
+# ============================================================
+# Hermes - Orquestador de Memecoin Agent v3.0-ultralite-fixed
+# ============================================================
+# Configuración de tasks cron para los agentes
+
+[agent]
+name = "memecoin-agent"
+version = "3.0-ultralite-fixed"
+description = "Sistema de análisis y trading de memecoins en Solana"
+
+# ============================================================
+# Tasks (cron jobs)
+# ============================================================
+
+[tasks.sniper]
+name = "sniper_engine"
+description = "Detectar tokens nuevos y calcular score heurístico"
+run = "python agents/sniper_engine.py"
+schedule = "*/15 * * * *"
+enabled = true
+
+[tasks.risk_filter]
+name = "risk_filter"
+description = "Evaluar riesgo de tokens"
+run = "python agents/risk_filter.py"
+schedule = "*/5 * * * *"
+enabled = true
+
+[tasks.research]
+name = "research_engine"
+description = "Entrenar modelos y generar hipótesis"
+run = "python agents/research_engine.py"
+schedule = "0 3 * * *"
+enabled = true
+
+[tasks.validate]
+name = "validate_hypotheses"
+description = "Validar hipótesis cada 6h"
+run = "python scripts/validate_hypotheses.py"
+schedule = "0 */6 * * *"
+enabled = true
+
+[tasks.backtest]
+name = "backtest_report"
+description = "Reporte diario de backtest"
+run = "python scripts/backtest_report.py"
+schedule = "0 8 * * *"
+enabled = true
+
+[tasks.whale_tracker]
+name = "whale_tracker"
+description = "Monitorizar whales y copy-trading"
+run = "python agents/whale_tracker.py"
+schedule = "*/30 * * * *"
+enabled = false  # Desactivado por defecto
+
+[tasks.cleanup]
+name = "cleanup"
+description = "Limpieza automática de datos antiguos"
+run = "python scripts/cleanup.py"
+schedule = "0 */6 * * *"
+enabled = true
+
+[tasks.streaming]
+name = "streaming"
+description = "Streaming on-chain (PumpPortal WebSocket)"
+run = "python scripts/stream_onchain_ws.py"
+schedule = "once"
+enabled = true
+
+# ============================================================
+# Configuración de SQLite
+# ============================================================
+[database]
+path = "data/memecoin.db"
+wal_mode = true
+busy_timeout = 5000
+synchronous = "NORMAL"
+cache_size = -100000
+
+# ============================================================
+# Configuración de LLM
+# ============================================================
+[llm]
+endpoint = "http://100.68.1.180:8080/v1"
+model = "im-qwen32b"
+timeout = 60
+
+# ============================================================
+# Configuración de Telegram
+# ============================================================
+[telegram]
+enabled = true
+token_env = "TELEGRAM_BOT_TOKEN"
+allowed_users_env = "TELEGRAM_ALLOWED_USERS"
+
+# ============================================================
+# Configuración de retención
+# ============================================================
+[retention]
+days = 1
+cleanup_log = "logs/cleanup.log"
+
+# ============================================================
+# Configuración de logging
+# ============================================================
+[logging]
+level = "INFO"
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+directory = "logs"

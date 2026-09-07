@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 """
 risk_filter.py
 
-Capa B - Risk Filter
+Capa B - Risk Filter (v3.0-ultralite-fixed)
 Evalúa risk_score de tokens en <500ms
 
 Reglas de evaluación (en orden):
@@ -12,6 +13,8 @@ Reglas de evaluación (en orden):
 5. creator_bundled_buy (señal de alerta)
 
 Bloquea trade si risk_score > RISK_THRESHOLD (default 0.65)
+
+PostgreSQL - Conexión centralizada
 """
 
 import os
@@ -20,12 +23,18 @@ import requests
 from typing import Tuple, Dict, Any
 
 # Configuración
-DB_DSN = os.getenv("DATABASE_URL")
 RUGCHECK_API_BASE = os.getenv("RUGCHECK_API_BASE", "https://api.rugcheck.xyz/v1")
 RISK_THRESHOLD = float(os.getenv("RISK_THRESHOLD", "0.65"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("risk_filter")
+
+from db import get_conn
+
+
+def get_db_connection():
+    """Obtener conexión a PostgreSQL."""
+    return get_conn()
 
 
 def get_creator_stats(cursor, creator_address: str) -> Dict[str, Any]:
@@ -155,9 +164,7 @@ def evaluate_token(mint: str, creator_address: str, token_id: int) -> Dict[str, 
     Evaluar riesgo de un token.
     Devuelve dict con risk_score y detalles.
     """
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -222,9 +229,7 @@ def register_risk_event(
     creator_address: str
 ):
     """Registrar evento de risk en la DB."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:

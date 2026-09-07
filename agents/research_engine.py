@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 """
 research_engine.py
 
-Capa C - Research Engine
+Capa C - Research Engine (v3.0-ultralite-fixed)
 Wrapper del sistema v2.3 completo con APScheduler
 
 Ejecuta:
@@ -11,6 +12,8 @@ Ejecuta:
 - backtest_report.py (reporte diario)
 
 Exporta umbrales actualizados a agent_config semanalmente
+
+PostgreSQL - Conexión centralizada
 """
 
 import os
@@ -22,18 +25,26 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # Configuración
-DB_DSN = os.getenv("DATABASE_URL")
 LITELLM_ENDPOINT = os.getenv("LITELLM_ENDPOINT", "http://100.68.1.180:8080/v1")
 FEATURE_VERSION = os.getenv("FEATURE_VERSION", "v1-onchain-v73")
-MODELS_DIR = os.getenv("MODELS_DIR", "/data/models")
+MODELS_DIR = os.getenv("MODELS_DIR", "models")
+RESEARCH_MODE = os.getenv("RESEARCH_MODE", "heuristic_only")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("research_engine")
 
+from db import get_conn
+
+
+def get_db_connection():
+    """Obtener conexión a PostgreSQL."""
+    return get_conn()
+
 
 def run_script(script_name: str, args: str = "") -> bool:
     """Ejecutar un script Python."""
-    cmd = f"python scripts/{script_name} {args}"
+    script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", script_name)
+    cmd = f"python {script_path} {args}"
     try:
         result = subprocess.run(
             cmd.split(),
@@ -60,9 +71,7 @@ def update_sniper_thresholds():
     Actualizar umbrales del sniper engine desde el research engine.
     Se ejecuta semanalmente para ajustar umbrales basados en datos reales.
     """
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -118,7 +127,8 @@ def update_sniper_thresholds():
 
 def main():
     """Configurar y arrancar APScheduler."""
-    logger.info("=== Research Engine iniciado ===")
+    logger.info("=== Research Engine (v3.0-ultralite-fixed) iniciado ===")
+    logger.info(f"Research Mode: {RESEARCH_MODE}")
 
     scheduler = BlockingScheduler(timezone='UTC')
 

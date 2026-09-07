@@ -1,17 +1,8 @@
 -- ============================================================
 -- Memecoin Agent v3.0-ultralite - Schema SQL
--- 100% SQLite compatible - WAL mode obligatorio
+-- 100% PostgreSQL compatible
 -- Optimizado para MacBook Pro 7,1 (8GB RAM) + IM (fallback)
--- SAA v7.2 compliant - Sin Docker, sin PostgreSQL, sin TimescaleDB
--- ============================================================
-
--- ============================================================
--- INICIALIZACIÓN OBLIGATORIA (ejecutar al conectar)
--- ============================================================
--- PRAGMA journal_mode=WAL;
--- PRAGMA busy_timeout=5000;
--- PRAGMA synchronous=NORMAL;
--- PRAGMA cache_size=-100000;
+-- SAA v7.2 compliant - PostgreSQL 15
 -- ============================================================
 
 -- ============================================================
@@ -20,28 +11,28 @@
 
 -- 1. Tabla tokens (metadatos de tokens y predicciones)
 CREATE TABLE IF NOT EXISTS tokens (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  address             TEXT UNIQUE NOT NULL,
+  id                  SERIAL PRIMARY KEY,
+  mint                VARCHAR(44) UNIQUE NOT NULL,
   name                TEXT,
   symbol              TEXT,
   chain               TEXT DEFAULT 'solana',
-  creator_address     TEXT,
-  created_at          TEXT NOT NULL,
+  creator_address     VARCHAR(44),
+  created_at          TIMESTAMPTZ NOT NULL,
 
   -- Datos iniciales del lanzamiento
-  initial_liquidity   INTEGER,
-  initial_market_cap  INTEGER,
+  initial_liquidity   NUMERIC(18,6),
+  initial_market_cap  NUMERIC(18,6),
   initial_holders     INTEGER,
-  initial_price_usd   REAL,
+  initial_price_usd   NUMERIC(18,6),
 
   -- Origen del dato
-  data_source         TEXT,
+  source              TEXT,
   -- valores: 'backfill_historical' | 'live_rpc' | 'live_polling'
 
   -- Targets (rellenados por label_targets.py)
-  pump_100pc_24h      INTEGER,
-  rug_pull_48h        INTEGER,
-  still_active_7d     INTEGER,
+  pump_100pc_24h      BOOLEAN,
+  rug_pull_48h        BOOLEAN,
+  still_active_7d     BOOLEAN,
 
   -- Historial del creador (NUEVO v3.0)
   creator_rug_history_count    INTEGER DEFAULT 0,
@@ -50,8 +41,8 @@ CREATE TABLE IF NOT EXISTS tokens (
 
   -- Bonding curve (NUEVO v3.0)
   bonding_curve_progress_pct   REAL,
-  pumpswap_pool_address        TEXT,
-  migrated_to_pumpswap         INTEGER DEFAULT 0,
+  pumpswap_pool_address        VARCHAR(44),
+  migrated_to_pumpswap         BOOLEAN DEFAULT FALSE,
 
   -- RugCheck score (NUEVO v3.0)
   rugcheck_score               INTEGER,
@@ -63,40 +54,39 @@ CREATE TABLE IF NOT EXISTS tokens (
   prob_survival_7d    REAL,
 
   -- Versiones de modelo usadas en la última predicción
-  model_A_version     TEXT,
-  model_B_version     TEXT,
-  model_C_version     TEXT,
+  model_A_version     VARCHAR(64),
+  model_B_version     VARCHAR(64),
+  model_C_version     VARCHAR(64),
 
   -- Control
   label_completed     INTEGER DEFAULT 0,
   features_computed   INTEGER DEFAULT 0,
-  predicted_at        TEXT
+  predicted_at        TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_created_at ON tokens (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_tokens_source ON tokens (data_source);
+CREATE INDEX IF NOT EXISTS idx_tokens_source ON tokens (source);
 CREATE INDEX IF NOT EXISTS idx_tokens_probs ON tokens (prob_pump_24h DESC, prob_rug_48h ASC);
 CREATE INDEX IF NOT EXISTS idx_tokens_unlabeled ON tokens (label_completed) WHERE label_completed = 0;
 CREATE INDEX IF NOT EXISTS idx_tokens_creator ON tokens(creator_address);
 
 -- 2. Tabla launches (series temporales de micro-ventanas)
 CREATE TABLE IF NOT EXISTS launches (
-  time                        TEXT NOT NULL,
+  time                        TIMESTAMPTZ NOT NULL,
   token_id                    INTEGER   NOT NULL,
 
   -- Precio en el momento de la muestra
-  price_usd                   REAL,
+  price_usd                   NUMERIC(18,6),
 
   -- Volumen acumulado desde lanzamiento hasta t
-  volume_5m                   INTEGER,
-  volume_15m                  INTEGER,
-  volume_60m                  INTEGER,
-  volume_240m                 INTEGER,
+  volume_5m                   NUMERIC(18,6),
+  volume_15m                  NUMERIC(18,6),
+  volume_60m                  NUMERIC(18,6),
+  volume_240m                 NUMERIC(18,6),
 
   -- Micro-ventanas (NUEVO v3.0 para Sniper Engine)
-  volume_30s                  INTEGER,
-  volume_60s                  INTEGER,
-  volume_5m                   INTEGER,
+  volume_30s                  NUMERIC(18,6),
+  volume_60s                  NUMERIC(18,6),
 
   -- Transacciones por ventana
   txs_0_5m                    INTEGER,
@@ -116,9 +106,9 @@ CREATE TABLE IF NOT EXISTS launches (
   sell_tx_0_30m               INTEGER,
 
   -- Estado de liquidez
-  liquidity_pool_before       INTEGER,
-  liquidity_pool_after        INTEGER,
-  is_liquidity_removed        INTEGER DEFAULT 0,
+  liquidity_pool_before       NUMERIC(18,6),
+  liquidity_pool_after        NUMERIC(18,6),
+  liquidity_remove_0_2h       BOOLEAN DEFAULT FALSE,
 
   -- Concentración de holders
   top_10_wallets_pct_0_1h     REAL,
@@ -126,7 +116,7 @@ CREATE TABLE IF NOT EXISTS launches (
 
   -- Bonding curve progress (NUEVO v3.0)
   bonding_curve_progress_pct  REAL,
-  rugcheck_fetched            INTEGER DEFAULT 0,
+  rugcheck_fetched            BOOLEAN DEFAULT FALSE,
 
   PRIMARY KEY (time, token_id)
 );
@@ -135,9 +125,9 @@ CREATE INDEX IF NOT EXISTS idx_launches_token ON launches (token_id, time DESC);
 
 -- 3. Tabla btc_context (contexto de BTC)
 CREATE TABLE IF NOT EXISTS btc_context (
-  time                TEXT PRIMARY KEY,
-  price_usd           REAL,
-  volume_24h          INTEGER,
+  time                TIMESTAMPTZ PRIMARY KEY,
+  price_usd           NUMERIC(18,6),
+  volume_24h          NUMERIC(18,6),
   change_pct_1h       REAL,
   change_pct_6h       REAL,
   change_pct_24h      REAL,
@@ -146,10 +136,10 @@ CREATE TABLE IF NOT EXISTS btc_context (
 
 -- 4. Tabla token_features (features calculadas por token)
 CREATE TABLE IF NOT EXISTS token_features (
-  id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                          SERIAL PRIMARY KEY,
   token_id                    INTEGER NOT NULL,
-  feature_version             TEXT NOT NULL,
-  model_version               TEXT,
+  feature_version             VARCHAR(32) NOT NULL,
+  model_version               VARCHAR(64),
   max_feature_window_minutes  INTEGER,
   tx_velocity_0_5m            REAL,
   tx_velocity_5_60m           REAL,
@@ -160,8 +150,8 @@ CREATE TABLE IF NOT EXISTS token_features (
   unique_wallets_0_10m        INTEGER,
   unique_wallets_0_60m        INTEGER,
   buy_tx_ratio_0_30m          REAL,
-  liquidity_add_0_10m         INTEGER,
-  liquidity_remove_0_2h       INTEGER,
+  liquidity_add_0_10m         BOOLEAN,
+  liquidity_remove_0_2h       BOOLEAN,
   liquidity_drop_1_2h_pct     REAL,
   top_10_wallets_pct_0_1h     REAL,
   gini_concentration_0_1h     REAL,
@@ -173,11 +163,11 @@ CREATE TABLE IF NOT EXISTS token_features (
   creator_graduation_rate     REAL,
   bonding_curve_progress_pct  REAL,
   rugcheck_score              INTEGER,
-  creator_bundled_buy         INTEGER,
+  creator_bundled_buy         BOOLEAN,
   avg_trade_size_0_30m        REAL,
   slippage_0_30m              REAL,
-  created_at                  TEXT DEFAULT (datetime('now')),
-  updated_at                  TEXT DEFAULT (datetime('now')),
+  created_at                  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ DEFAULT NOW(),
   FOREIGN KEY (token_id) REFERENCES tokens(id)
 );
 
@@ -187,12 +177,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tf_token_version ON token_features (token_
 
 -- 5. Tabla token_hypotheses (hipótesis falsables)
 CREATE TABLE IF NOT EXISTS token_hypotheses (
-  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                      SERIAL PRIMARY KEY,
   hypothesis_text         TEXT NOT NULL,
   conditions_json         TEXT,
-  target_model            TEXT,
-  feature_version         TEXT,
-  model_version           TEXT,
+  target_model            VARCHAR(32),
+  feature_version         VARCHAR(32),
+  model_version           VARCHAR(64),
   estimated_probability   REAL,
   confidence_interval     REAL,
   prior_probability       REAL DEFAULT 0.5,
@@ -201,27 +191,27 @@ CREATE TABLE IF NOT EXISTS token_hypotheses (
   total_tested            INTEGER DEFAULT 0,
   validated_count         INTEGER DEFAULT 0,
   refuted_count           INTEGER DEFAULT 0,
-  generated_by            TEXT,
-  generated_on_data       TEXT,
-  active                  INTEGER DEFAULT 1,
-  created_at              TEXT DEFAULT (datetime('now')),
-  last_updated            TEXT DEFAULT (datetime('now'))
+  generated_by            VARCHAR(64),
+  generated_on_data       VARCHAR(64),
+  active                  BOOLEAN DEFAULT TRUE,
+  created_at              TIMESTAMPTZ DEFAULT NOW(),
+  last_updated            TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_hyp_prob ON token_hypotheses (posterior_probability DESC);
 CREATE INDEX IF NOT EXISTS idx_hyp_model ON token_hypotheses (target_model);
-CREATE INDEX IF NOT EXISTS idx_hyp_active ON token_hypotheses (active) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS idx_hyp_active ON token_hypotheses (active) WHERE active = TRUE;
 
 -- 6. Tabla model_performance (métricas de modelos)
 CREATE TABLE IF NOT EXISTS model_performance (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  model_name          TEXT NOT NULL,
-  feature_version     TEXT,
-  model_version       TEXT,
-  train_start         TEXT,
-  train_end           TEXT,
-  test_start          TEXT,
-  test_end            TEXT,
+  id                  SERIAL PRIMARY KEY,
+  model_name          VARCHAR(64) NOT NULL,
+  feature_version     VARCHAR(32),
+  model_version       VARCHAR(128),
+  train_start         TIMESTAMPTZ,
+  train_end           TIMESTAMPTZ,
+  test_start          TIMESTAMPTZ,
+  test_end            TIMESTAMPTZ,
   n_tokens_train      INTEGER,
   n_tokens_test       INTEGER,
   pct_positive        REAL,
@@ -233,7 +223,7 @@ CREATE TABLE IF NOT EXISTS model_performance (
   log_loss            REAL,
   model_file_path     TEXT,
   experiment_notes    TEXT,
-  created_at          TEXT DEFAULT (datetime('now'))
+  created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_mp_model ON model_performance (model_name, model_version);
@@ -241,29 +231,29 @@ CREATE INDEX IF NOT EXISTS idx_mp_created ON model_performance (created_at DESC)
 
 -- 7. Tabla backfill_log (log de backfill histórico)
 CREATE TABLE IF NOT EXISTS backfill_log (
-  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-  source              TEXT,
-  date_range_from     TEXT,
-  date_range_to       TEXT,
+  id                  SERIAL PRIMARY KEY,
+  source              VARCHAR(64),
+  date_range_from     TIMESTAMPTZ,
+  date_range_to       TIMESTAMPTZ,
   tokens_discovered   INTEGER DEFAULT 0,
   tokens_stored       INTEGER DEFAULT 0,
   tokens_skipped      INTEGER DEFAULT 0,
   launches_stored     INTEGER DEFAULT 0,
-  last_checkpoint     TEXT,
-  status              TEXT DEFAULT 'running',
+  last_checkpoint     TIMESTAMPTZ,
+  status              VARCHAR(32) DEFAULT 'running',
   error_message       TEXT,
-  started_at          TEXT DEFAULT (datetime('now')),
-  ended_at            TEXT
+  started_at          TIMESTAMPTZ DEFAULT NOW(),
+  ended_at            TIMESTAMPTZ
 );
 
 -- 8. Tabla agent_execution_log (log de ejecución de agentes)
 CREATE TABLE IF NOT EXISTS agent_execution_log (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_name             TEXT,
-  status                TEXT,
+  id                    SERIAL PRIMARY KEY,
+  task_name             VARCHAR(64),
+  status                VARCHAR(32),
   error_message         TEXT,
-  started_at            TEXT,
-  ended_at              TEXT,
+  started_at            TIMESTAMPTZ,
+  ended_at              TIMESTAMPTZ,
   tokens_processed      INTEGER DEFAULT 0,
   data_points_collected INTEGER DEFAULT 0,
   extra_json            TEXT
@@ -274,24 +264,24 @@ CREATE INDEX IF NOT EXISTS idx_ael_status ON agent_execution_log (status);
 
 -- 9. Tabla trades (historial de compras/ventas con PnL)
 CREATE TABLE IF NOT EXISTS trades (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
-  mint_address          TEXT NOT NULL,
-  wallet_address        TEXT NOT NULL,
-  action                TEXT NOT NULL,
-  amount_sol            REAL,
-  amount_usd            REAL,
-  price_per_token       REAL,
-  jito_bundle_id        TEXT,
-  tx_hash               TEXT,
-  block_slot            INTEGER,
-  timestamp             TEXT NOT NULL,
-  pnl_sol               REAL,
+  mint_address          VARCHAR(44) NOT NULL,
+  wallet_address        VARCHAR(44) NOT NULL,
+  action                VARCHAR(16) NOT NULL,
+  amount_sol            NUMERIC(18,6),
+  amount_usd            NUMERIC(18,6),
+  price_per_token       NUMERIC(18,6),
+  jito_bundle_id        VARCHAR(88),
+  tx_hash               VARCHAR(88),
+  block_slot            BIGINT,
+  timestamp             TIMESTAMPTZ NOT NULL,
+  pnl_sol               NUMERIC(18,6),
   pnl_pct               REAL,
-  status                TEXT DEFAULT 'pending',
-  stop_loss_triggered   INTEGER DEFAULT 0,
-  take_profit_triggered INTEGER DEFAULT 0,
-  created_at            TEXT DEFAULT (datetime('now'))
+  status                VARCHAR(32) DEFAULT 'pending',
+  stop_loss_triggered   BOOLEAN DEFAULT FALSE,
+  take_profit_triggered BOOLEAN DEFAULT FALSE,
+  created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_token ON trades (token_id);
@@ -301,19 +291,19 @@ CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades (timestamp DESC);
 
 -- 10. Tabla risk_events (eventos del risk filter)
 CREATE TABLE IF NOT EXISTS risk_events (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
-  mint_address          TEXT NOT NULL,
+  mint_address          VARCHAR(44) NOT NULL,
   risk_score            REAL NOT NULL,
   risk_threshold        REAL NOT NULL,
   blocked_reasons       TEXT,
-  creator_address       TEXT,
+  creator_address       VARCHAR(44),
   creator_rug_history   INTEGER,
   top_10_concentration  REAL,
-  liquidity_status      TEXT,
-  timestamp             TEXT NOT NULL DEFAULT (datetime('now')),
-  decision              TEXT NOT NULL,
-  created_at            TEXT DEFAULT (datetime('now'))
+  liquidity_status      VARCHAR(32),
+  timestamp             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  decision              VARCHAR(16) NOT NULL,
+  created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_risk_token ON risk_events (token_id);
@@ -322,15 +312,15 @@ CREATE INDEX IF NOT EXISTS idx_risk_decision ON risk_events (decision);
 
 -- 11. Tabla circuit_breaker_log (registro de pausas automáticas)
 CREATE TABLE IF NOT EXISTS circuit_breaker_log (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  trigger_type          TEXT NOT NULL,
+  id                    SERIAL PRIMARY KEY,
+  trigger_type          VARCHAR(64) NOT NULL,
   trigger_value         REAL NOT NULL,
   threshold_value       REAL NOT NULL,
-  action_taken          TEXT NOT NULL,
-  total_losses          REAL,
+  action_taken          VARCHAR(64) NOT NULL,
+  total_losses          NUMERIC(18,6),
   active_trades_count   INTEGER,
-  paused_at             TEXT NOT NULL DEFAULT (datetime('now')),
-  resumed_at            TEXT,
+  paused_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resumed_at            TIMESTAMPTZ,
   duration_minutes      INTEGER,
   notes                 TEXT
 );
@@ -338,42 +328,42 @@ CREATE TABLE IF NOT EXISTS circuit_breaker_log (
 CREATE INDEX IF NOT EXISTS idx_cb_trigger ON circuit_breaker_log (trigger_type);
 CREATE INDEX IF NOT EXISTS idx_cb_paused ON circuit_breaker_log (paused_at DESC);
 
--- 12. Tabla tracked_wallets (whales, bundlers, creators)
-CREATE TABLE IF NOT EXISTS tracked_wallets (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  address               TEXT UNIQUE NOT NULL,
-  wallet_type           TEXT NOT NULL,
+-- 12. Tabla whales (whales, bundlers, creators)
+CREATE TABLE IF NOT EXISTS whales (
+  id                    SERIAL PRIMARY KEY,
+  wallet                VARCHAR(64) UNIQUE NOT NULL,
+  label                 VARCHAR(32) NOT NULL,
   name                  TEXT,
-  total_tokens          INTEGER DEFAULT 0,
+  total_trades          INTEGER DEFAULT 0,
   rug_count             INTEGER DEFAULT 0,
-  graduation_rate       REAL,
+  win_rate              REAL,
   avg_return_pct        REAL,
-  first_seen            TEXT,
-  last_seen             TEXT,
-  is_whale_qualifying   INTEGER DEFAULT 0,
-  created_at            TEXT DEFAULT (datetime('now')),
-  updated_at            TEXT DEFAULT (datetime('now'))
+  first_seen            TIMESTAMPTZ,
+  last_seen             TIMESTAMPTZ,
+  is_whale_qualifying   BOOLEAN DEFAULT FALSE,
+  added_at              TIMESTAMPTZ DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_tw_type ON tracked_wallets (wallet_type);
-CREATE INDEX IF NOT EXISTS idx_tw_qualifying ON tracked_wallets (is_whale_qualifying) WHERE is_whale_qualifying = 1;
+CREATE INDEX IF NOT EXISTS idx_whale_label ON whales (label);
+CREATE INDEX IF NOT EXISTS idx_whale_qualifying ON whales (is_whale_qualifying) WHERE is_whale_qualifying = TRUE;
 
 -- 13. Tabla spray_targets (copy-trading tracking)
 CREATE TABLE IF NOT EXISTS spray_targets (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  whale_address         TEXT NOT NULL,
+  id                    SERIAL PRIMARY KEY,
+  whale_address         VARCHAR(64) NOT NULL,
   token_id              INTEGER REFERENCES tokens(id),
-  whale_action          TEXT NOT NULL,
-  whale_timestamp       TEXT NOT NULL,
-  our_action            TEXT,
-  our_timestamp         TEXT,
+  whale_action          VARCHAR(16) NOT NULL,
+  whale_timestamp       TIMESTAMPTZ NOT NULL,
+  our_action            VARCHAR(16),
+  our_timestamp         TIMESTAMPTZ,
   our_delay_ms          INTEGER,
-  whale_amount_sol      REAL,
-  our_amount_sol        REAL,
-  outcome               TEXT,
-  profit_sol            REAL,
+  whale_amount_sol      NUMERIC(18,6),
+  our_amount_sol        NUMERIC(18,6),
+  outcome               VARCHAR(32),
+  profit_sol            NUMERIC(18,6),
   profit_pct            REAL,
-  created_at            TEXT DEFAULT (datetime('now'))
+  created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_st_whale ON spray_targets (whale_address);
@@ -382,59 +372,59 @@ CREATE INDEX IF NOT EXISTS idx_st_outcome ON spray_targets (outcome);
 
 -- 14. Tabla agent_config (parámetros de runtime)
 CREATE TABLE IF NOT EXISTS agent_config (
-  key                   TEXT PRIMARY KEY,
+  key                   VARCHAR(64) PRIMARY KEY,
   value                 TEXT NOT NULL,
-  updated_at            TEXT DEFAULT (datetime('now'))
+  updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Valores por defecto seguros
-INSERT OR IGNORE INTO agent_config VALUES ('execution_mode', 'research');
-INSERT OR IGNORE INTO agent_config VALUES ('max_position_sol', '1.0');
-INSERT OR IGNORE INTO agent_config VALUES ('risk_threshold', '0.65');
-INSERT OR IGNORE INTO agent_config VALUES ('circuit_breaker_losses', '3');
-INSERT OR IGNORE INTO agent_config VALUES ('spray_enabled', 'false');
-INSERT OR IGNORE INTO agent_config VALUES ('sniper_enabled', 'false');
-INSERT OR IGNORE INTO agent_config VALUES ('stream_source', 'polling');
-INSERT OR IGNORE INTO agent_config VALUES ('sniper_tx_velocity_threshold', '3.0');
-INSERT OR IGNORE INTO agent_config VALUES ('sniper_wallet_threshold', '10');
-INSERT OR IGNORE INTO agent_config VALUES ('sniper_buy_ratio_threshold', '0.70');
-INSERT OR IGNORE INTO agent_config VALUES ('research_mode', 'heuristic_only');
-INSERT OR IGNORE INTO agent_config VALUES ('retention_days', '1');
+INSERT INTO agent_config (key, value) VALUES ('execution_mode', 'research') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('max_position_sol', '1.0') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('risk_threshold', '0.65') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('circuit_breaker_losses', '3') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('spray_enabled', 'false') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('sniper_enabled', 'false') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('stream_source', 'polling') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('sniper_tx_velocity_threshold', '3.0') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('sniper_wallet_threshold', '10') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('sniper_buy_ratio_threshold', '0.70') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('research_mode', 'heuristic_only') ON CONFLICT (key) DO NOTHING;
+INSERT INTO agent_config (key, value) VALUES ('retention_days', '1') ON CONFLICT (key) DO NOTHING;
 
 -- 15. Tabla pending_trades (señales pendientes de ejecución)
 CREATE TABLE IF NOT EXISTS pending_trades (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                    SERIAL PRIMARY KEY,
   token_id              INTEGER REFERENCES tokens(id),
-  mint_address          TEXT NOT NULL,
-  signal_type           TEXT NOT NULL,
+  mint_address          VARCHAR(44) NOT NULL,
+  signal_type           VARCHAR(32) NOT NULL,
   sniper_score          REAL,
   risk_score            REAL,
-  whale_address         TEXT,
+  whale_address         VARCHAR(64),
   whale_delay_ms        INTEGER,
   confidence            REAL,
-  created_at            TEXT DEFAULT (datetime('now')),
-  executed_at           TEXT,
-  executed              INTEGER DEFAULT 0,
+  created_at            TIMESTAMPTZ DEFAULT NOW(),
+  executed_at           TIMESTAMPTZ,
+  executed              BOOLEAN DEFAULT FALSE,
   execution_error       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_pt_token ON pending_trades (token_id);
-CREATE INDEX IF NOT EXISTS idx_pt_executed ON pending_trades (executed) WHERE executed = 0;
+CREATE INDEX IF NOT EXISTS idx_pt_executed ON pending_trades (executed) WHERE executed = FALSE;
 
 -- ============================================================
 -- VISTAS ÚTILES
 -- ============================================================
 
 -- Vista: Tokens pendientes de etiquetar
-CREATE VIEW IF NOT EXISTS tokens_pending_label AS
-SELECT id, address, created_at, data_source
+CREATE OR REPLACE VIEW tokens_pending_label AS
+SELECT id, mint, created_at, source
 FROM tokens
 WHERE label_completed = 0
-  AND created_at < datetime('now', '-24 hours');
+  AND created_at < NOW() - INTERVAL '24 hours';
 
 -- Vista: Tokens con features calculadas
-CREATE VIEW IF NOT EXISTS tokens_ready_for_training AS
-SELECT t.id, t.address, t.pump_100pc_24h, t.rug_pull_48h, t.still_active_7d,
+CREATE OR REPLACE VIEW tokens_ready_for_training AS
+SELECT t.id, t.mint, t.pump_100pc_24h, t.rug_pull_48h, t.still_active_7d,
        tf.feature_version, tf.created_at as features_created_at
 FROM tokens t
 INNER JOIN token_features tf ON tf.token_id = t.id
@@ -443,7 +433,7 @@ WHERE t.label_completed = 1
   AND t.rug_pull_48h IS NOT NULL;
 
 -- Vista: Métricas de modelos por fecha
-CREATE VIEW IF NOT EXISTS model_performance_daily AS
+CREATE OR REPLACE VIEW model_performance_daily AS
 SELECT DATE(created_at) as date, model_name,
        COUNT(*) as runs,
        AVG(precision_at_10) as avg_precision_at_10,
@@ -453,7 +443,7 @@ GROUP BY DATE(created_at), model_name
 ORDER BY date DESC, model_name;
 
 -- Vista: Resumen de trades por día
-CREATE VIEW IF NOT EXISTS trades_daily_summary AS
+CREATE OR REPLACE VIEW trades_daily_summary AS
 SELECT DATE(timestamp) as date,
        COUNT(*) as total_trades,
        SUM(CASE WHEN pnl_sol > 0 THEN 1 ELSE 0 END) as winning_trades,
@@ -464,23 +454,23 @@ GROUP BY DATE(timestamp)
 ORDER BY date DESC;
 
 -- Vista: Tokens recientes (últimos 24h)
-CREATE VIEW IF NOT EXISTS tokens_recent_24h AS
+CREATE OR REPLACE VIEW tokens_recent_24h AS
 SELECT *
 FROM tokens
-WHERE created_at >= datetime('now', '-24 hours');
+WHERE created_at >= NOW() - INTERVAL '24 hours';
 
 -- Vista: Tokens con alta probabilidad de pump (últimos 24h)
-CREATE VIEW IF NOT EXISTS tokens_high_pump_prob AS
+CREATE OR REPLACE VIEW tokens_high_pump_prob AS
 SELECT *
 FROM tokens
 WHERE prob_pump_24h > 0.70
-  AND created_at >= datetime('now', '-24 hours')
+  AND created_at >= NOW() - INTERVAL '24 hours'
 ORDER BY prob_pump_24h DESC;
 
 -- Vista: Tokens con bajo riesgo de rug (últimos 24h)
-CREATE VIEW IF NOT EXISTS tokens_low_rug_prob AS
+CREATE OR REPLACE VIEW tokens_low_rug_prob AS
 SELECT *
 FROM tokens
 WHERE prob_rug_48h < 0.30
-  AND created_at >= datetime('now', '-24 hours')
+  AND created_at >= NOW() - INTERVAL '24 hours'
 ORDER BY prob_rug_48h ASC;

@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 """
 execution_engine.py
 
-Capa D - Execution Engine
+Capa D - Execution Engine (v3.0-ultralite-fixed)
 Firma y envía trades solo si execution_mode = 'real'
 
 Reglas de seguridad:
@@ -10,6 +11,8 @@ Reglas de seguridad:
 - Stop-loss on-chain obligatorio (-30%)
 - Take-profit: +50%, +100%
 - Jito Bundle para cada trade
+
+PostgreSQL - Conexión centralizada
 """
 
 import os
@@ -19,7 +22,6 @@ from datetime import datetime
 from typing import Optional
 
 # Configuración
-DB_DSN = os.getenv("DATABASE_URL")
 EXECUTION_MODE = os.getenv("EXECUTION_MODE", "research")
 MAX_POSITION_SOL = float(os.getenv("MAX_POSITION_SOL", "0.5"))
 JITO_BLOCK_ENGINE_URL = os.getenv("JITO_BLOCK_ENGINE_URL", "https://mainnet.block-engine.jito.wtf")
@@ -29,15 +31,20 @@ WALLET_PRIVATE_KEY = os.getenv("WALLET_PRIVATE_KEY", "")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("execution_engine")
 
+from db import get_conn
+
 # LÍMITE HARD: 1 SOL por trade (nunca se puede sobrepasar)
 HARD_LIMIT_SOL = 1.0
 
 
+def get_db_connection():
+    """Obtener conexión a PostgreSQL."""
+    return get_conn()
+
+
 def is_execution_mode() -> bool:
     """Verificar si el modo execution está activo."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -53,9 +60,7 @@ def is_execution_mode() -> bool:
 
 def check_circuit_breaker() -> bool:
     """Verificar si el circuit breaker está activo."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -72,9 +77,7 @@ def check_circuit_breaker() -> bool:
 
 def get_active_trades_count() -> int:
     """Obtener número de trades activos."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -90,9 +93,7 @@ def get_active_trades_count() -> int:
 
 def get_total_exposure() -> float:
     """Obtener exposición total en SOL."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -162,8 +163,6 @@ def execute_trade(token_id: int, mint: str, amount_sol: float) -> Optional[str]:
     Ejecutar un trade.
     Devuelve tx_hash o None si falla.
     """
-    import psycopg2
-
     # Verificar modo execution
     if not is_execution_mode():
         logger.warning("Execution mode no activo. Trade no ejecutado.")
@@ -195,7 +194,7 @@ def execute_trade(token_id: int, mint: str, amount_sol: float) -> Optional[str]:
         return None
 
     # Registrar en DB
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -211,7 +210,7 @@ def execute_trade(token_id: int, mint: str, amount_sol: float) -> Optional[str]:
             "self",  # Auto-trade
             min(amount_sol, HARD_LIMIT_SOL),
             jito_bundle_id,
-            datetime.utcnow()
+            datetime.utcnow().isoformat()
         ))
 
         trade_id = cursor.fetchone()[0]
@@ -227,9 +226,7 @@ def execute_trade(token_id: int, mint: str, amount_sol: float) -> Optional[str]:
 
 def process_pending_trades():
     """Procesar pending_trades pendientes."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -237,7 +234,7 @@ def process_pending_trades():
         cursor.execute("""
             SELECT id, token_id, mint_address, sniper_score
             FROM pending_trades
-            WHERE executed = FALSE
+            WHERE executed = 0
             ORDER BY sniper_score DESC
             LIMIT 10
         """)
@@ -253,7 +250,7 @@ def process_pending_trades():
             if jito_bundle_id:
                 cursor.execute("""
                     UPDATE pending_trades SET
-                        executed = TRUE,
+                        executed = 1,
                         executed_at = NOW(),
                         execution_error = NULL
                     WHERE id = %s
@@ -274,9 +271,7 @@ def process_pending_trades():
 
 def monitor_trades():
     """Monitorizar trades activos y actualizar status."""
-    import psycopg2
-
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -300,7 +295,7 @@ def monitor_trades():
 
 def main():
     """Loop principal del execution engine."""
-    logger.info("=== Execution Engine iniciado ===")
+    logger.info("=== Execution Engine (v3.0-ultralite-fixed) iniciado ===")
     logger.info(f"EXECUTION_MODE: {EXECUTION_MODE}")
     logger.info(f"MAX_POSITION_SOL: {MAX_POSITION_SOL}")
     logger.info(f"HARD_LIMIT_SOL: {HARD_LIMIT_SOL}")

@@ -1,21 +1,18 @@
-# Memecoin Agent v3.0-ultralite-fixed
+# Memecoin Agent v3.1 - Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 
-Sistema Autónomo de Análisis y Trading de Memecoins en Solana
-
-**Versión**: 3.0-ultralite-fixed (Corrección de errores críticos - PostgreSQL 100%)
-
-**Estado**: SAA v7.2 compliant - 100% PostgreSQL, sin Docker, sin gRPC
+**Versión**: 3.1 (Incremento desde v3.0-ultralite-fixed)
+**Estado**: SAA v10.0 compliant - 100% PostgreSQL, sin Docker, sin gRPC
 
 ---
 
-## Arquitectura v3.0-ultralite
+## Arquitectura v3.1
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│           Memecoin Agent v3.0-ultralite (MB: 8GB RAM)              │
+│           Memecoin Agent v3.1 (MB: 8GB RAM)                         │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Capa A - Sniper Engine                     │  │
+│  │                    Capa A - Sniper Engine v3.1                 │  │
 │  │  ┌────────────────────┐                                       │  │
 │  │  │  Polling RPC       │                                       │  │
 │  │  │  (15s Helius)      │                                       │  │
@@ -23,37 +20,39 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │  │            │                                                   │  │
 │  │            ▼                                                   │  │
 │  │  ┌─────────────────────────────────────────────────────────┐   │  │
-│  │  │  Sniper Engine: <2s detection, score heurístico         │   │  │
+│  │  │  Sniper Engine v3.1: <1s detection (mejorado)           │   │  │
 │  │  │  - tx_velocity, wallets, buy_ratio, liquidity          │   │  │
+│  │  │  - Caching de features (nuevo)                          │   │  │
 │  │  └─────────────────────────────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                       │
 │                              ▼                                       │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Capa B - Risk Filter                       │  │
+│  │                    Capa B - Risk Filter v3.1                  │  │
 │  │  ┌─────────────────────────────────────────────────────────┐   │  │
-│  │  │  Risk Score: rugcheck, creator history, concentration  │   │  │
-│  │  │  - Bloquea si risk_score > RISK_THRESHOLD (0.65)       │   │  │
+│  │  │  Risk Score v3.1: rugcheck, creator history,           │   │  │
+│  │  │  - Bloqueo con nuevas fuentes (nuevo)                   │   │  │
 │  │  └─────────────────────────────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                       │
 │                              ▼                                       │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Capa C - Research Engine                   │  │
+│  │                    Capa C - Research Engine v3.1              │  │
 │  │  ┌─────────────────────────────────────────────────────────┐   │  │
-│  │  │  XGBoost Models (IM: CPU-only, 8GB RAM)                │   │  │
-│  │  │  - Pump 24h        │  │  - Hipótesis LLM (TO:8080)      │   │  │
-│  │  │  - Rug 48h         │  │  - Validación cada 6h          │   │  │
-│  │  │  - Survival 7d     │  │  - Backtest diario             │   │  │
-│  │  │  - Modo: heuristic_only (fallback)                     │   │  │
+│  │  │  XGBoost Models v3.1 (IM: CPU-only, 8GB RAM)            │   │  │
+│  │  │  - Transfer learning (nuevo)                            │   │  │
+│  │  │  - Hipótesis LLM (TO:8080)                              │   │  │
+│  │  │  - Validación cada 6h                                   │   │  │
+│  │  │  - Backtest diario                                      │   │  │
+│  │  │  - Modo: heuristic_only (fallback)                      │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                              │                                       │
 │                              ▼                                       │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Capa D - Execution Engine                  │  │
+│  │                    Capa D - Execution Engine v3.1             │  │
 │  │  ┌────────────────────┐  ┌────────────────────────────────┐   │  │
-│  │  │  PostgreSQL DB     │  │  Circuit Breaker               │   │  │
+│  │  │  PostgreSQL DB     │  │  Circuit Breaker v3.1          │   │  │
 │  │  │  - Compartido      │  │  - Stop-loss -30%              │   │  │
 │  │  │  - Retention 24h   │  │  - Max 1 SOL por trade         │   │  │
 │  │  └────────────────────┘  └────────────────────────────────┘   │  │
@@ -61,7 +60,7 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 │                              │                                       │
 │                              ▼                                       │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    Whale Tracker (Spray)                      │  │
+│  │                    Whale Tracker v3.1 (Spray)                 │  │
 │  │  - Copy-trading de whales cualificadas                       │  │
 │  │  - Graduation rate > 15%, rug rate < 20%                     │  │
 │  └───────────────────────────────────────────────────────────────┘  │
@@ -72,13 +71,37 @@ Sistema Autónomo de Análisis y Trading de Memecoins en Solana
 
 | Servicio | Nodo | RAM | Notas |
 |----------|------|-----|-------|
-| Sniper Engine | MB | 2GB | Detección heurística <2s |
+| Sniper Engine | MB | 2GB | Detección heurística <1s (mejorado) |
 | Risk Filter | MB | 1GB | Evaluación <500ms |
 | Telegram Bot | MB | 1GB | Control remoto |
 | PostgreSQL DB | TO | 2GB | Base de datos compartida (localhost:5432) |
 | Streaming | MB | 1GB | Polling cada 15s (Helius) |
 | Research Engine | IM | 8GB | ML + Training (CPU-only, fallback) |
 | LLM Access | TO | - | Gateway LiteLLM (8080) |
+
+---
+
+## Nuevas Características v3.1
+
+### 1. Optimización de Latencia Sniper (<1s)
+- Caching de features para reducir latencia
+- Optimización de heurísticas de detección
+- Reducción de latencia de RPC calls
+
+### 2. Mejoras en Risk Filter
+- Integración de más APIs de verificación
+- Análisis de contrato inteligente
+- Análisis de transacciones previas
+
+### 3. Training Engine Mejorado
+- Transfer learning para modelos más rápidos
+- Data augmentation para mejor generalización
+- Early stopping para evitar overfitting
+
+### 4. Backtest Framework Mejorado
+- Simulación de slippage
+- Métricas de Sharpe Ratio
+- Análisis de drawdown
 
 ---
 
@@ -208,27 +231,30 @@ Todos los scripts usan `get_conn()` de `memecoins/db.py` para conectar a Postgre
 
 ## Estrategias
 
-### Capa A - Sniper Engine
-- Detecta tokens nuevos en <2s
+### Capa A - Sniper Engine v3.1
+- Detecta tokens nuevos en <1s (mejorado desde <2s)
 - Score heurístico basado en:
   - Velocidad de transacciones
   - Wallets únicas
   - Ratio compra/venta
   - Liquidez añadida
   - Progreso bonding curve
+  - Caching de features (nuevo)
 
-### Capa B - Risk Filter
+### Capa B - Risk Filter v3.1
 - Evalúa riesgo en <500ms
-- Fuentes: RugCheck API, historial creador, concentración
+- Fuentes: RugCheck API, historial creador, concentración, nuevas APIs
 - Bloquea si risk_score > 0.65
 
-### Capa C - Research Engine (IM)
+### Capa C - Research Engine v3.1 (IM)
 - Entrena modelos XGBoost diariamente
 - Genera hipótesis semanalmente con LLM
 - Validación bayesiana de hipótesis
+- Transfer learning (nuevo)
+- Data augmentation (nuevo)
 - Modo degradado: `heuristic_only` cuando IM no disponible
 
-### Capa D - Execution Engine
+### Capa D - Execution Engine v3.1
 - PostgreSQL DB (única fuente de verdad)
 - Retención: 24h máximo (configurable)
 - Stop-loss -30%, Take-profit +50% y +100%
@@ -244,7 +270,7 @@ Todos los scripts usan `get_conn()` de `memecoins/db.py` para conectar a Postgre
 ## Métricas de Éxito
 
 - **Precision@top10**: > 0.60 (mínimo aceptable)
-- **Latencia Sniper**: < 2s
+- **Latencia Sniper**: < 1s (mejorado desde <2s)
 - **Latencia Risk Filter**: < 500ms
 - **Uptime**: > 99.5%
 
@@ -268,7 +294,7 @@ psql postgresql://saa:saa@localhost:5432/saa -c "SELECT model_name, precision_at
 
 ---
 
-## Integración con SAA v7.2
+## Integración con SAA v10.0
 
 ### Enrutamiento LLM
 

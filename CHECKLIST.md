@@ -1,7 +1,7 @@
 # Memecoin Agent v3.0-ultralite-fixed - Checklist de Validación
 
-**Estado**: SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
-**Versión**: v3.0-ultralite-fixed (corrección de errores críticos)
+**Estado**: SAA v7.2 compliant - 100% PostgreSQL, sin Docker, sin gRPC
+**Versión**: v3.0-ultralite-fixed (corrección de errores críticos - PostgreSQL)
 
 ---
 
@@ -21,12 +21,12 @@
 ## Fase 1: Infraestructura base
 
 - [ ] Crear estructura de carpetas v3.0-ultralite-fixed
-- [ ] Crear sql/schema_v3.0.sql (SQLite compatible, micro-ventanas 30s)
-- [ ] Actualizar requirements.txt (ultralite-fixed con openai>=1.30)
+- [ ] Crear sql/schema_v3.0.sql (PostgreSQL compatible, micro-ventanas 30s)
+- [ ] Actualizar requirements.txt (ultralite-fixed con openai>=1.30, psycopg2-binary)
 - [ ] Actualizar config/.env.example
 - [ ] Crear .gitignore
 - [ ] Crear README.md (v3.0-ultralite-fixed)
-- [ ] Crear scripts/init_db.py (WAL Mode)
+- [ ] Crear scripts/init_db.py (PostgreSQL)
 - [ ] Crear scripts/cleanup.py (cron cada 6h con VACUUM)
 - [ ] Crear scripts/llm_client.py (helper centralizado)
 
@@ -87,8 +87,7 @@
 - [ ] Configurar hermes-memecoin.toml (tasks cron)
 - [ ] Arrancar servicios con systemd (no & manual)
 - [ ] Configurar transferencia de datos MB→IM antes de training (scp o http)
-- [ ] Verificar WAL Mode en SQLite
-- [ ] Configurar retención automática (cron job cada 6h)
+- [ ] Verificar retención automática (cron job cada 6h)
 - [ ] Configurar cron: `0 */6 * * * python /path/memecoin/scripts/cleanup.py`
 
 ---
@@ -112,7 +111,7 @@
 - [ ] Latencia Sniper < 2s
 - [ ] Latencia Risk Filter < 500ms
 - [ ] Uptime > 99.5%
-- [ ] SQLite con WAL Mode
+- [ ] PostgreSQL (única base de datos soportada)
 
 ### Seguridad
 
@@ -131,7 +130,7 @@
 
 ---
 
-## Comandos de Verificación (SQLite)
+## Comandos de Verificación (PostgreSQL)
 
 ```bash
 # Verificar estructura
@@ -143,16 +142,12 @@ ps aux | grep python
 # Verificar logs
 tail -f logs/*.log
 
-# Verificar base de datos SQLite
-sqlite3 data/memecoin.db "SELECT COUNT(*) FROM tokens;"
-sqlite3 data/memecoin.db "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
-
-# Verificar WAL Mode
-sqlite3 data/memecoin.db "PRAGMA journal_mode;"
-# Debe devolver: wal
+# Verificar base de datos PostgreSQL
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT COUNT(*) FROM tokens;"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
 
 # Verificar tamaño de base de datos
-sqlite3 data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT pg_size_pretty(pg_database_size('saa'));"
 ```
 
 ---
@@ -164,4 +159,4 @@ sqlite3 data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb
 0 */6 * * * python /path/memecoin/scripts/cleanup.py >> /path/memecoin/logs/cleanup.log 2>&1
 
 # Verificar tamaño de base de datos cada hora
-0 * * * * sqlite3 /path/memecoin/data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();" >> /path/memecoin/logs/db_size.log 2>&1
+0 * * * * psql postgresql://saa:saa@localhost:5432/saa -c "SELECT pg_size_pretty(pg_database_size('saa'));"

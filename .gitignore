@@ -40,8 +40,6 @@ Thumbs.db
 # Archivos grandes
 *.csv
 *.parquet
-*.db
-*.sqlite
 
 # Credenciales
 *.pem

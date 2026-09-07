@@ -1,0 +1,25 @@
+[Unit]
+Description=Memecoin Agent v3.0-ultralite-fixed
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/memecoins
+Environment="DATABASE_PATH=/home/ubuntu/memecoins/data/memecoin.db"
+Environment="LITELLM_ENDPOINT=http://100.68.1.180:8080/v1"
+Environment="LITELLM_MODEL=im-qwen32b"
+Environment="EXECUTION_MODE=research"
+Environment="MAX_POSITION_SOL=0.5"
+Environment="RISK_THRESHOLD=0.65"
+Environment="SPRAY_ENABLED=false"
+Environment="RETENTION_DAYS=1"
+ExecStart=/usr/bin/python3 /home/ubuntu/memecoins/agents/sniper_engine.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=memecoin-agent
+
+[Install]
+WantedBy=multi-user.target

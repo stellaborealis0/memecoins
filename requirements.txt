@@ -1,7 +1,7 @@
 # ============================================================
 # Memecoin Agent v3.0-ultralite-fixed - Requirements.txt
 # Optimizado para MacBook Pro 7,1 (8GB RAM) + IM (fallback)
-# SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
+# SAA v7.2 compliant - PostgreSQL, sin Docker, sin gRPC
 # Python 3.11 requerido (NO usar 3.12 - solana-py incompatible)
 # ============================================================
 
@@ -23,6 +23,9 @@ xgboost>=2.0
 scikit-learn>=1.4
 pandas>=2.0
 numpy>=1.26
+
+# --- PostgreSQL (única base de datos soportada en v3.0) ---
+psycopg2-binary>=2.9.9
 
 # --- Scheduler ---
 apscheduler>=3.10

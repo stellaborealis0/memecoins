@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 """
 stream_onchain_ws.py
 
-Fallback de streaming on-chain usando PumpPortal WebSocket.
-Se usa si Yellowstone gRPC no está disponible.
+Streaming on-chain usando PumpPortal WebSocket (primario).
+PostgreSQL compatible para v3.0-ultralite-fixed.
 
 Fase 2: Capa A (Sniper Engine) - ingesta de datos
 
@@ -18,13 +19,14 @@ import json
 from datetime import datetime
 from typing import Optional
 
-import psycopg2
+import requests
 from websockets import connect
 from websockets.exceptions import ConnectionClosed
 
+from db import get_conn
+
 # Configuración
 PUMPPORTAL_WS_URL = os.getenv("PUMPPORTAL_WS_URL", "wss://pumpportal.fun/api/data")
-DB_DSN = os.getenv("DATABASE_URL")
 RUGCHECK_API_BASE = os.getenv("RUGCHECK_API_BASE", "https://api.rugcheck.xyz/v1")
 
 logging.basicConfig(
@@ -32,6 +34,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("stream_ws")
+
+
+def get_db_connection():
+    """Obtener conexión a PostgreSQL."""
+    return get_conn()
 
 
 async def connect_ws():
@@ -75,7 +82,6 @@ async def subscribe_events(ws):
 async def fetch_rugcheck_score(mint: str) -> Optional[dict]:
     """Obtener rugcheck score para un token."""
     try:
-        import requests
         resp = requests.get(
             f"{RUGCHECK_API_BASE}/tokens/{mint}/report",
             timeout=10
@@ -89,7 +95,7 @@ async def fetch_rugcheck_score(mint: str) -> Optional[dict]:
 
 async def process_new_token(msg: dict):
     """Procesar evento de token nuevo."""
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -98,16 +104,17 @@ async def process_new_token(msg: dict):
             return
 
         # Verificar si ya existe
-        cursor.execute("SELECT id FROM tokens WHERE address = %s", (mint,))
+        cursor.execute("SELECT id FROM tokens WHERE mint = %s", (mint,))
         if cursor.fetchone():
+            logger.info(f"Token {mint} ya existe, saltando")
             return
 
         # Insertar token
-        created_at = datetime.utcnow()
+        created_at = datetime.utcnow().isoformat()
         cursor.execute("""
-            INSERT INTO tokens (address, created_at, data_source)
+            INSERT INTO tokens (mint, created_at, source)
             VALUES (%s, %s, 'live_ws')
-            ON CONFLICT (address) DO NOTHING
+            ON CONFLICT (mint) DO NOTHING
             RETURNING id
         """, (mint, created_at))
 
@@ -123,7 +130,7 @@ async def process_new_token(msg: dict):
                     UPDATE tokens
                     SET rugcheck_score = %s,
                         rugcheck_risks = %s
-                    WHERE address = %s
+                    WHERE mint = %s
                 """, (
                     rugcheck.get("score"),
                     json.dumps(rugcheck.get("risks", [])),
@@ -136,12 +143,13 @@ async def process_new_token(msg: dict):
         logger.error(f"Error procesando token: {e}")
         conn.rollback()
     finally:
+        cursor.close()
         conn.close()
 
 
 async def process_migration(msg: dict):
     """Procesar evento de migración a PumpSwap."""
-    conn = psycopg2.connect(DB_DSN)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
@@ -153,9 +161,9 @@ async def process_migration(msg: dict):
 
         cursor.execute("""
             UPDATE tokens
-            SET migrated_to_pumpswap = TRUE,
+            SET migrated_to_pumpswap = 1,
                 pumpswap_pool_address = %s
-            WHERE address = %s
+            WHERE mint = %s
         """, (pool, mint))
 
         conn.commit()
@@ -165,6 +173,7 @@ async def process_migration(msg: dict):
         logger.error(f"Error procesando migración: {e}")
         conn.rollback()
     finally:
+        cursor.close()
         conn.close()
 
 
@@ -200,7 +209,7 @@ async def stream_loop():
 
 async def main(dry_run: bool = False, timeout: Optional[int] = None):
     """Función principal."""
-    logger.info("=== Memecoin Agent v3.0 - Stream WebSocket ===")
+    logger.info("=== Memecoin Agent v3.0-ultralite-fixed - Stream WebSocket ===")
     logger.info(f"Modo: {'DRY-RUN' if dry_run else 'LIVE'}")
 
     if dry_run:

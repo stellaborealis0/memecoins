@@ -2,8 +2,8 @@
 
 **Versión**: 3.0-ultralite-fixed
 **Fecha**: Marzo 2026
-**Estado**: SAA v7.2 compliant - 100% SQLite, sin Docker, sin gRPC
-**Arquitectura**: 4 capas + Hermes orquestador comunicadas via SQLite (WAL Mode)
+**Estado**: SAA v7.2 compliant - 100% PostgreSQL, sin Docker, sin gRPC
+**Arquitectura**: 4 capas + Hermes orquestador comunicadas via PostgreSQL
 
 ---
 
@@ -28,20 +28,20 @@
 | Componente | Versión Mínima | Notas |
 |------------|----------------|-------|
 | Python | 3.11+ | Para todos los scripts (NO 3.12 - solana-py incompatible) |
-| SQLite | 3.37+ | Con WAL Mode (obligatorio) |
+| PostgreSQL | 15+ | Base de datos principal (única fuente de verdad) |
 | Tailscale | 1.0+ | Para conectividad |
 | openai | >=1.30 | Para LiteLLM Gateway (TO:8080) |
 
 **⚠️ Importante**:
 - NO usar Docker en MB (imposible en 8GB RAM/SSD)
-- NO usar PostgreSQL (no documentado en SAA v7.2)
+- PostgreSQL es la única base de datos soportada (SQLite ya no es compatible)
 - NO usar gRPC (hardware antiguo no lo soporta)
 
 ### 1.3 Compatibilidad con Nodos (v3.0-ultralite-fixed)
 
 | Nodo | Rol en Memecoin Agent | Estado |
 |------|----------------------|--------|
-| **MB** | Control plane (Sniper, Risk, Telegram, SQLite, Hermes, Research) | ✅ Activo |
+| **MB** | Control plane (Sniper, Risk, Telegram, PostgreSQL, Hermes, Research) | ✅ Activo |
 | **TO** | LiteLLM Gateway (LLM) | ✅ Activo |
 | **IM** | Research Engine fallback (ML + Hipótesis) | ✅ Fallback |
 | **WS** | Ignorado (ocupado COLMAP) | ⚠️ No disponible |
@@ -113,7 +113,7 @@ Validar compatibilidad con SAA v7.2 y preparar entorno.
 ### FASE 1: Infraestructura Base (Días 3-5)
 
 #### Objetivo
-Configurar SQLite con WAL Mode y crear base de datos.
+Configurar PostgreSQL y crear base de datos.
 
 #### Tareas
 
@@ -122,25 +122,24 @@ Configurar SQLite con WAL Mode y crear base de datos.
    mkdir -p data logs models
    ```
 
-2. **Inicializar base de datos SQLite con WAL Mode**
+2. **Inicializar base de datos PostgreSQL**
    ```bash
    # Crear script init_db.py (ver sección 7)
    python scripts/init_db.py
    ```
 
-3. **Verificar WAL Mode**
+3. **Verificar tablas**
    ```bash
-   sqlite3 data/memecoin.db "PRAGMA journal_mode;"
-   # Debe devolver: wal
+   psql postgresql://saa:saa@localhost:5432/saa -c "\dt"
    ```
 
-4. **Verificar tablas**
+4. **Verificar conexión**
    ```bash
-   sqlite3 data/memecoin.db ".tables"
+   psql postgresql://saa:saa@localhost:5432/saa -c "SELECT 1;"
    ```
 
 #### Archivos Generados
-- `data/memecoin.db` - Base de datos SQLite
+- `data/memecoin.db` - Base de datos PostgreSQL
 - `logs/installation.log` - Log de instalación
 
 ---
@@ -193,7 +192,7 @@ Implementar features con resolución de 30s, 60s, 5m.
 
 3. **Validar Features**
    ```bash
-   sqlite3 data/memecoin.db "SELECT * FROM token_features LIMIT 5;"
+   psql postgresql://saa:saa@localhost:5432/saa -c "SELECT * FROM token_features LIMIT 5;"
    ```
 
 #### Archivos Generados
@@ -245,7 +244,7 @@ Implementar las 4 capas independientes + Hermes como orquestador.
   - Stop-loss -30%
   - Take-profit +50%, +100%
   - Circuit breaker
-  - SQLite con WAL Mode
+  - PostgreSQL (única fuente de verdad)
 
 ##### Hermes Agent
 - `hermes-memecoin.toml` - Orquestador con tasks cron
@@ -402,7 +401,7 @@ Validar sistema completo antes de producción.
 
 | Servicio | CPU | RAM | Storage | Notas |
 |----------|-----|-----|---------|-------|
-| SQLite DB | 1 | 512MB | 1GB | SQLite con WAL Mode |
+| PostgreSQL DB | 1 | 512MB | 1GB | Base de datos principal |
 | stream-polling | 1 | 1GB | 1GB | PumpPortal WS (primario) |
 | sniper | 1 | 2GB | 1GB | Sniper Engine |
 | risk-filter | 1 | 1GB | 1GB | Risk Filter |
@@ -443,14 +442,14 @@ ps aux | grep python
 # Verificar logs en tiempo real
 tail -f logs/*.log
 
-# Verificar base de datos SQLite
-sqlite3 data/memecoin.db "SELECT COUNT(*) FROM tokens;"
+# Verificar base de datos PostgreSQL
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT COUNT(*) FROM tokens;"
 
 # Verificar métricas
-sqlite3 data/memecoin.db "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT model_name, precision_at_10 FROM model_performance ORDER BY created_at DESC LIMIT 5;"
 
 # Verificar tamaño de base de datos
-sqlite3 data/memecoin.db "SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT pg_size_pretty(pg_database_size('saa'));"
 ```
 
 ### 4.2 Verificar Latencia
@@ -470,27 +469,26 @@ tail -f logs/risk-filter.log | grep "Score:"
 
 ```bash
 # Tokens por fuente
-sqlite3 data/memecoin.db "SELECT data_source, COUNT(*) FROM tokens GROUP BY data_source;"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT data_source, COUNT(*) FROM tokens GROUP BY data_source;"
 
 # Distribución de targets
-sqlite3 data/memecoin.db "SELECT pump_100pc_24h, rug_pull_48h, still_active_7d, COUNT(*) FROM tokens WHERE label_completed = 1 GROUP BY 1,2,3 ORDER BY 4 DESC;"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT pump_100pc_24h, rug_pull_48h, still_active_7d, COUNT(*) FROM tokens WHERE label_completed = 1 GROUP BY 1,2,3 ORDER BY 4 DESC;"
 
 # Últimas métricas de modelos
-sqlite3 data/memecoin.db "SELECT model_name, precision_at_10, precision_at_20, auc_roc, created_at FROM model_performance ORDER BY created_at DESC LIMIT 9;"
+psql postgresql://saa:saa@localhost:5432/saa -c "SELECT model_name, precision_at_10, precision_at_20, auc_roc, created_at FROM model_performance ORDER BY created_at DESC LIMIT 9;"
 ```
 
 ---
 
 ## 5. Troubleshooting
 
-### 5.1 Error: database is locked
+### 5.1 Error: connection refused
 
-**Causa**: SQLite sin WAL mode o múltiples escritores simultáneos.
+**Causa**: PostgreSQL no está accesible.
 
-**Solución**: Asegurar que todos los scripts ejecuten al conectar:
-```python
-conn.execute("PRAGMA journal_mode=WAL;")
-conn.execute("PRAGMA busy_timeout=5000;")
+**Solución**: Verificar que el SSH tunnel esté activo:
+```bash
+ssh -L 5432:localhost:5432 eviwork@100.68.1.180
 ```
 
 ### 5.2 Error: No space left on device
@@ -545,7 +543,7 @@ scp data/memecoin.db user@100.68.1.55:/tmp/memecoin_train.db
 - [ ] Latencia Sniper < 2s
 - [ ] Latencia Risk Filter < 500ms
 - [ ] Uptime > 99.5%
-- [ ] SQLite con WAL Mode
+- [ ] PostgreSQL (única base de datos soportada)
 
 ### 6.2 Seguridad
 
@@ -566,33 +564,30 @@ scp data/memecoin.db user@100.68.1.55:/tmp/memecoin_train.db
 
 ## 7. Scripts Esenciales
 
-### 7.1 init_db.py - Inicializar SQLite con WAL Mode
+### 7.1 init_db.py - Inicializar PostgreSQL
 
 ```python
 #!/usr/bin/env python3
-"""Inicializar base de datos SQLite con WAL Mode."""
+"""Inicializar base de datos PostgreSQL."""
 
-import sqlite3
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_PATH = os.getenv("DATABASE_PATH", "data/memecoin.db")
+DB_DSN = os.getenv("POSTGRES_DSN", "postgresql://saa:saa@localhost:5432/saa")
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-
-    # WAL Mode obligatorio para concurrencia
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA cache_size=-100000;")
+    conn = psycopg2.connect(DB_DSN)
+    cursor = conn.cursor()
 
     # Cargar schema
     with open("sql/schema_v3.0.sql", "r") as f:
-        conn.executescript(f.read())
+        cursor.execute(f.read())
 
     conn.commit()
+    cursor.close()
     conn.close()
-    print(f"Base de datos inicializada: {DB_PATH}")
+    print(f"Base de datos inicializada: {DB_DSN}")
 
 if __name__ == "__main__":
     init_db()
@@ -602,16 +597,21 @@ if __name__ == "__main__":
 
 ```python
 #!/usr/bin/env python3
-"""Script de limpieza automática para SQLite (cron cada 6h)."""
+"""Script de limpieza automática para PostgreSQL (cron cada 6h)."""
 
-import sqlite3
 import os
 import sys
+import logging
 from datetime import datetime, timedelta
 
-DB_PATH = os.getenv("DATABASE_PATH", "data/memecoin.db")
+from db import get_conn
+
+# Configuración
 RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "1"))
 LOG_PATH = os.getenv("CLEANUP_LOG_PATH", "logs/cleanup.log")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("cleanup")
 
 
 def log(message: str):
@@ -625,43 +625,33 @@ def log(message: str):
 
 
 def cleanup_old_data():
-    """Elimina datos antiguos según retención y ejecuta VACUUM."""
+    """Elimina datos antiguos según retención."""
     log(f"Iniciando limpieza: retención={RETENTION_DAYS} días")
-    conn = sqlite3.connect(DB_PATH)
+
+    conn = get_conn()
+    cursor = conn.cursor()
 
     try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout=5000;")
-
         cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
         log(f"Cutoff: {cutoff}")
 
-        cursor = conn.cursor()
+        # Contar registros antes de borrar
 
         # Borrar launches antiguos
-        cursor.execute("SELECT COUNT(*) FROM launches WHERE time < ?", (cutoff,))
+        cursor.execute("SELECT COUNT(*) FROM launches WHERE time < %s", (cutoff,))
         launches_count = cursor.fetchone()[0]
-        cursor.execute("DELETE FROM launches WHERE time < ?", (cutoff,))
+        cursor.execute("DELETE FROM launches WHERE time < %s", (cutoff,))
         log(f"Borrados {launches_count} launches antiguos")
 
         # Borrar token_features antiguos
-        cursor.execute("SELECT COUNT(*) FROM token_features WHERE created_at < ?", (cutoff,))
+        cursor.execute("SELECT COUNT(*) FROM token_features WHERE created_at < %s", (cutoff,))
         features_count = cursor.fetchone()[0]
-        cursor.execute("DELETE FROM token_features WHERE created_at < ?", (cutoff,))
+        cursor.execute("DELETE FROM token_features WHERE created_at < %s", (cutoff,))
         log(f"Borrados {features_count} token_features antiguos")
 
         conn.commit()
 
-        # Ejecutar VACUUM para compactar la base de datos
-        log("Ejecutando VACUUM...")
-        conn.execute("VACUUM;")
-        conn.commit()
-
-        # Verificar tamaño final
-        cursor.execute("SELECT page_count * page_size / 1024 / 1024 AS size_mb FROM pragma_page_count(), pragma_page_size();")
-        final_size = cursor.fetchone()[0]
-        log(f"Limpieza completada. Tamaño final: {final_size:.2f} MB")
-
+        log("Limpieza completada")
         return True
 
     except Exception as e:
@@ -670,15 +660,12 @@ def cleanup_old_data():
         return False
 
     finally:
+        cursor.close()
         conn.close()
 
 
 def main():
     """Función principal."""
-    if not os.path.exists(DB_PATH):
-        log(f"ERROR: Base de datos no encontrada: {DB_PATH}")
-        sys.exit(1)
-
     success = cleanup_old_data()
     sys.exit(0 if success else 1)
 
@@ -848,7 +835,7 @@ tailscale netcheck
 
 1. **Validar hardware** (MB 8GB + IM 8GB)
 2. **Instalar dependencias** (pip install -r requirements.txt)
-3. **Inicializar SQLite** (python scripts/init_db.py)
+3. **Inicializar PostgreSQL** (python scripts/init_db.py)
 4. **Configurar variables** (config/.env)
 5. **Arrancar servicios** (systemctl start memecoin-*)
 6. **Validar sistema** (comandos de Telegram)
